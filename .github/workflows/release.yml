@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write
 
 jobs:
   build-and-release:
@@ -48,6 +49,28 @@ jobs:
         working-directory: release
         run: sha256sum mer-* > checksums.txt
 
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Sign binaries with cosign (per-asset sigstore bundles)
+        # Keyless signing via GitHub's OIDC identity — no secrets needed.
+        # `ghr install` verifies the resulting `<asset>.sigstore.json`
+        # bundle automatically, so `ghr install ${{ github.repository }}@${{ github.ref_name }}`
+        # fails closed on any tampering and prints the signer identity.
+        env:
+          COSIGN_YES: 'true'
+        working-directory: release
+        run: |
+          set -euo pipefail
+          for asset in mer-*; do
+            cosign sign-blob \
+              --bundle "${asset}.sigstore.json" \
+              --output-signature /dev/null \
+              --output-certificate /dev/null \
+              "${asset}"
+          done
+          ls -la ./*.sigstore.json
+
       - name: Write release notes
         run: |
           cat > release/notes.md <<'EOF'
@@ -64,6 +87,13 @@ jobs:
           ```bash
           wget -qO- https://merjs.trilok.ai/install.sh | bash
           ```
+
+          **Via [ghr](https://github.com/cataggar/ghr):**
+          ```bash
+          ghr install ${{ github.repository }}@${{ github.ref_name }}
+          ```
+          Each binary is signed with a per-asset sigstore bundle (keyless,
+          via GitHub Actions OIDC); `ghr install` verifies it automatically.
 
           **Manual Install:**
           1. Download the matching `mer-*` binary below for your platform
@@ -94,6 +124,11 @@ jobs:
           ```bash
           sha256sum -c checksums.txt
           ```
+
+          Or verify the sigstore bundle for a given binary:
+          ```bash
+          cosign verify-blob --bundle mer-linux-x86_64.sigstore.json mer-linux-x86_64
+          ```
           EOF
 
       - name: Create release
@@ -103,6 +138,7 @@ jobs:
             release/mer-macos-x86_64 \
             release/mer-linux-x86_64 \
             release/mer-linux-aarch64 \
+            release/*.sigstore.json \
             release/install.sh \
             release/checksums.txt \
             --notes-file release/notes.md \
