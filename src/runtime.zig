@@ -1,11 +1,14 @@
 const std = @import("std");
-const builtin = @import("builtin");
 
 /// Runtime Io instance with platform-conditional backend.
 ///
-/// - Linux: Uses Evented (io_uring) for best performance
-/// - macOS/BSD: Uses Threaded (blocking syscalls) - Evented has a stdlib bug in 0.16
-/// - Other: Uses Threaded as safe fallback
+/// - All platforms: Uses Threaded (blocking syscalls).
+/// - Evented (io_uring) is currently disabled everywhere: the official Zig
+///   0.16.0 release has a stdlib bug in `std.Io.Uring` (Dir.OpenError /
+///   Dir.RealPathFileError are missing `ReadOnlyFileSystem`, breaking
+///   compilation on Linux), in addition to the pre-existing macOS Dispatch
+///   deinit() bug (Dispatch.zig:584). Re-enable per-platform once upstream
+///   fixes land.
 pub var threaded: std.Io.Threaded = undefined;
 pub var io: std.Io = undefined;
 
@@ -13,9 +16,8 @@ pub var io: std.Io = undefined;
 const use_evented = blk: {
     if (!@hasDecl(std.Io, "Evented")) break :blk false;
     if (std.Io.Evented == void) break :blk false;
-    // Only use Evented on Linux where Uring (io_uring) is available
-    // macOS Dispatch has a bug in deinit() (Dispatch.zig:584)
-    break :blk builtin.os.tag == .linux;
+    // Disabled on every platform for now — see the doc comment above.
+    break :blk false;
 };
 
 // Evented storage only exists when supported

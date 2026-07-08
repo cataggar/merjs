@@ -13,18 +13,15 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Config
-REPO="justrach/merjs"
+REPO="${REPO:-justrach/merjs}"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 VERSION="${VERSION:-latest}"
 
 # Detect OS
- detect_os() {
+detect_os() {
     case "$(uname -s)" in
         Linux*)     echo "linux";;
         Darwin*)    echo "macos";;
-        CYGWIN*)    echo "windows";;
-        MINGW*)     echo "windows";;
-        MSYS*)      echo "windows";;
         *)          echo "unknown";;
     esac
 }
@@ -33,9 +30,7 @@ VERSION="${VERSION:-latest}"
 detect_arch() {
     case "$(uname -m)" in
         x86_64|amd64)   echo "x86_64";;
-        arm64|aarch64)  echo "arm64";;
-        armv7l)         echo "armv7";;
-        i386|i686)      echo "x86";;
+        arm64|aarch64)  echo "aarch64";;
         *)              echo "unknown";;
     esac
 }
@@ -44,8 +39,8 @@ OS=$(detect_os)
 ARCH=$(detect_arch)
 
 if [ "$OS" = "unknown" ] || [ "$ARCH" = "unknown" ]; then
-    echo -e "${RED}Error: Unsupported platform: ${OS}/${ARCH}${NC}"
-    echo "Supported: linux/x86_64, linux/arm64, macos/x86_64, macos/arm64"
+    echo -e "${RED}Error: Unsupported platform: $(uname -s)/$(uname -m)${NC}"
+    echo "Supported: linux/x86_64, linux/aarch64, macos/x86_64, macos/aarch64"
     exit 1
 fi
 
@@ -55,22 +50,18 @@ echo "   Install dir: ${INSTALL_DIR}"
 echo ""
 
 # Check for required tools
- check_deps() {
+check_deps() {
     if ! command -v curl &> /dev/null && ! command -v wget &> /dev/null; then
         echo -e "${RED}Error: curl or wget is required${NC}"
         exit 1
     fi
-    
-    if ! command -v tar &> /dev/null; then
-        echo -e "${RED}Error: tar is required${NC}"
-        exit 1
-    fi
 }
+check_deps
 
 download() {
     local url="$1"
     local output="$2"
-    
+
     if command -v curl &> /dev/null; then
         curl -fsSL "$url" -o "$output"
     else
@@ -89,16 +80,20 @@ fi
 
 echo -e "${BLUE}   Version: ${VERSION}${NC}"
 
-# Build download URL
-FILENAME="merjs-${VERSION}-${OS}-${ARCH}.tar.gz"
-URL="https://github.com/${REPO}/releases/download/${VERSION}/${FILENAME}"
+# Release assets are bare binaries named mer-<arch>-<os> (arch before os so
+# that `ghr install` derives the command name "mer" instead of falling back
+# to the repo name — see cataggar/ghr's deriveBareBinaryName heuristic).
+ASSET="mer-${ARCH}-${OS}"
+BASE_URL="https://github.com/${REPO}/releases/download/${VERSION}"
+URL="${BASE_URL}/${ASSET}"
+CHECKSUMS_URL="${BASE_URL}/checksums.txt"
 
 # Create temp directory
 TMP_DIR=$(mktemp -d)
 trap "rm -rf $TMP_DIR" EXIT
 
-echo -e "${YELLOW}⬇️  Downloading...${NC}"
-if ! download "$URL" "${TMP_DIR}/${FILENAME}"; then
+echo -e "${YELLOW}⬇️  Downloading ${ASSET}...${NC}"
+if ! download "$URL" "${TMP_DIR}/mer"; then
     echo -e "${RED}Error: Failed to download ${URL}${NC}"
     echo "You may need to build from source:"
     echo "  git clone https://github.com/${REPO}.git"
@@ -106,16 +101,24 @@ if ! download "$URL" "${TMP_DIR}/${FILENAME}"; then
     exit 1
 fi
 
-echo -e "${YELLOW}📂 Extracting...${NC}"
-tar -xzf "${TMP_DIR}/${FILENAME}" -C "$TMP_DIR"
-
-# Find binaries
-MER_BIN=$(find "$TMP_DIR" -name "mer" -type f | head -1)
-MERJS_BIN=$(find "$TMP_DIR" -name "merjs" -type f | head -1)
-
-if [ -z "$MER_BIN" ]; then
-    echo -e "${RED}Error: mer binary not found in archive${NC}"
-    exit 1
+# Verify checksum when possible; a missing checksums.txt (or checksum tool)
+# is a soft failure so the install can still proceed.
+if download "$CHECKSUMS_URL" "${TMP_DIR}/checksums.txt" 2>/dev/null; then
+    echo -e "${YELLOW}🔒 Verifying checksum...${NC}"
+    (
+        cd "$TMP_DIR"
+        if command -v shasum &> /dev/null; then
+            grep " ${ASSET}\$" checksums.txt | sed "s| ${ASSET}\$| mer|" | shasum -a 256 -c - \
+                || { echo -e "${RED}Error: checksum verification failed${NC}"; exit 1; }
+        elif command -v sha256sum &> /dev/null; then
+            grep " ${ASSET}\$" checksums.txt | sed "s| ${ASSET}\$| mer|" | sha256sum -c - \
+                || { echo -e "${RED}Error: checksum verification failed${NC}"; exit 1; }
+        else
+            echo -e "${YELLOW}   (no sha256 tool found, skipping verification)${NC}"
+        fi
+    )
+else
+    echo -e "${YELLOW}   (checksums.txt unavailable, skipping verification)${NC}"
 fi
 
 echo -e "${YELLOW}🔧 Installing...${NC}"
@@ -128,15 +131,9 @@ else
     SUDO="sudo"
 fi
 
-# Install binaries
 $SUDO mkdir -p "$INSTALL_DIR"
-$SUDO cp "$MER_BIN" "${INSTALL_DIR}/mer"
+$SUDO cp "${TMP_DIR}/mer" "${INSTALL_DIR}/mer"
 $SUDO chmod +x "${INSTALL_DIR}/mer"
-
-if [ -n "$MERJS_BIN" ]; then
-    $SUDO cp "$MERJS_BIN" "${INSTALL_DIR}/merjs"
-    $SUDO chmod +x "${INSTALL_DIR}/merjs"
-fi
 
 # Verify installation
 if command -v mer &> /dev/null; then

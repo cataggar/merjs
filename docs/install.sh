@@ -51,15 +51,15 @@ echo "   Version: ${VERSION}"
 # Map to release asset naming
 if [ "$OS" = "macos" ]; then
     if [ "$ARCH" = "arm64" ]; then
-        ASSET="mer-macos-aarch64"
+        ASSET="mer-aarch64-macos"
     else
-        ASSET="mer-macos-x86_64"
+        ASSET="mer-x86_64-macos"
     fi
 else
     if [ "$ARCH" = "arm64" ]; then
-        ASSET="mer-linux-aarch64"
+        ASSET="mer-aarch64-linux"
     else
-        ASSET="mer-linux-x86_64"
+        ASSET="mer-x86_64-linux"
     fi
 fi
 
