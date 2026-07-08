@@ -218,3 +218,17 @@ pub const Config = @import("server.zig").Config;
 pub const ServerReady = @import("server.zig").ServerReady;
 pub const Watcher = @import("watcher.zig").Watcher;
 pub const runPrerender = @import("prerender.zig").run;
+
+// --- Test discovery -----------------------------------------------------------
+// `zig test` only discovers `test {}` blocks in files that get referenced
+// during analysis. Re-exporting a type (e.g. `pub const Router = ...Router`)
+// only forces resolution of that one declaration, NOT the rest of the file —
+// so router.zig's/dispatch.zig's own tests were silently never running.
+// Force full analysis (and thus test discovery) of every file reachable from
+// this module's public surface, plus dispatch.zig specifically since it's
+// only used internally by server.zig (never re-exported as a pub const).
+test {
+    std.testing.refAllDecls(@This());
+    _ = @import("router.zig");
+    _ = @import("dispatch.zig");
+}

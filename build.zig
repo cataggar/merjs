@@ -234,6 +234,7 @@ pub fn build(b: *std.Build) void {
         mer_test_mod.addImport("dhi_model", dhi_model_mod);
         mer_test_mod.addImport("dhi_validator", dhi_validator_mod);
         mer_test_mod.addImport("turboapi-core", core_mod);
+        mer_test_mod.addImport("runtime", runtime_mod);
         mer_test_mod.addImport("mer", mer_test_mod);
         test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = mer_test_mod })).step);
     }
