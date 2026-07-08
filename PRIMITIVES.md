@@ -244,11 +244,16 @@ rendering — there is no client-side router or virtual DOM, only a DOM swap.
   `popstate`.
 - Instead of a normal navigation, it does `fetch(url, { headers: { 'X-Mer-Shell': '1' } })`.
 - The server detects that header and calls the route's `render()` directly,
-  **skipping layout wrapping**, returning `{"title": "...", "body": "...html..."}`
-  as JSON instead of a full document. If the route also exports
-  `renderStream`, that is buffered into the fragment instead — otherwise
-  pages whose real content lives in `renderStream` (streaming demos, live
-  data) would show whatever placeholder their required `render()` returns.
+  **skipping layout wrapping**, returning
+  `{"title": "...", "body": "...html...", "extraHead": "...css..."}` as JSON
+  instead of a full document. `extraHead` is the page's `meta.extra_head`
+  (normally injected by the layout, which shell-nav skips) — the client
+  swaps it into a dedicated, reused container in `<head>` so each page's own
+  CSS applies and replaces the previous page's, instead of never loading or
+  piling up forever. If the route also exports `renderStream`, that is
+  buffered into the fragment instead — otherwise pages whose real content
+  lives in `renderStream` (streaming demos, live data) would show whatever
+  placeholder their required `render()` returns.
 - Before swapping, `document` fires `mer:before-navigate` — pages with their
   own inline scripts (polling loops, timers, listeners) should listen for
   this and clean up (`clearInterval`, abort fetches, etc.), since shell-nav

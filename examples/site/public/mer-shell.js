@@ -11,8 +11,12 @@
 //   - Any fetch/network error               -> full navigation.
 //
 // Server contract: a GET request with header `X-Mer-Shell: 1` gets back
-// `{"title": "...", "body": "...html fragment..."}` instead of the full
-// document (see src/server.zig / src/dispatch.zig `dispatchFragment`).
+// `{"title": "...", "body": "...html fragment...", "extraHead": "...css/etc..."}`
+// instead of the full document (see src/server.zig / src/dispatch.zig
+// `dispatchFragment`). `extraHead` is the page's `meta.extra_head` (usually
+// a <style> block) — normally injected by the layout's wrap()/streamWrap(),
+// which shell-nav skips, so without forwarding it here a page's own CSS
+// would never apply when reached via a nav click.
 //
 // Events on `document` (for pages with their own inline scripts):
 //   - `mer:before-navigate` — fired right before the old fragment is torn
@@ -26,6 +30,22 @@
 (function () {
   var mount = document.getElementById("mer-shell");
   if (!mount) return;
+
+  // Container for the current page's extra <head> content (usually a
+  // <style> block from `meta.extra_head`). Reused across navigations so
+  // each page's styles replace the previous page's instead of piling up
+  // forever. <style> tags (unlike <script>) apply correctly wherever
+  // they're inserted, including here, so plain innerHTML is fine.
+  function getHeadContainer() {
+    var el = document.getElementById("mer-shell-head");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "mer-shell-head";
+      el.style.display = "none";
+      document.head.appendChild(el);
+    }
+    return el;
+  }
 
   function sameOrigin(url) {
     try {
@@ -90,6 +110,7 @@
         // the JS realm like a real navigation would.
         document.dispatchEvent(new CustomEvent("mer:before-navigate"));
         mount.innerHTML = data.body;
+        getHeadContainer().innerHTML = data.extraHead || "";
         if (data.title) document.title = data.title;
         if (push) history.pushState({ merShell: true }, "", url);
         window.scrollTo(0, 0);

@@ -492,9 +492,14 @@ fn sendResponse(std_req: *std.http.Server.Request, response: mer.Response) !void
     try bw.end();
 }
 
-/// Send an SSR-shell fragment as `{"title": ..., "body": ...}` JSON.
+/// Send an SSR-shell fragment as `{"title", "body", "extraHead"}` JSON.
 /// Consumed by `mer-shell.js` — it swaps `body` into the page's mount
-/// element and sets `document.title`, without a full page reload.
+/// element, sets `document.title`, and replaces the page-specific `<head>`
+/// content (`extraHead` — usually the page's own `<style>` block from
+/// `meta.extra_head`) without a full page reload. Without this, a page's
+/// own CSS would never apply when reached via shell-nav, since that CSS is
+/// normally injected by the layout's wrap()/streamWrap(), which shell-nav
+/// intentionally skips.
 /// Cookies from the route's response (e.g. session writes) are preserved.
 fn sendShellFragment(
     alloc: std.mem.Allocator,
@@ -504,7 +509,7 @@ fn sendShellFragment(
 ) !void {
     var out: std.Io.Writer.Allocating = .init(alloc);
     var jw: std.json.Stringify = .{ .writer = &out.writer };
-    jw.write(.{ .title = meta.title, .body = response.body }) catch {};
+    jw.write(.{ .title = meta.title, .body = response.body, .extraHead = meta.extra_head orelse "" }) catch {};
     const json_body = out.written();
 
     var cookie_val_bufs: [MAX_COOKIES][512]u8 = undefined;
