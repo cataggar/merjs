@@ -245,11 +245,25 @@ rendering — there is no client-side router or virtual DOM, only a DOM swap.
 - Instead of a normal navigation, it does `fetch(url, { headers: { 'X-Mer-Shell': '1' } })`.
 - The server detects that header and calls the route's `render()` directly,
   **skipping layout wrapping**, returning `{"title": "...", "body": "...html..."}`
-  as JSON instead of a full document.
+  as JSON instead of a full document. If the route also exports
+  `renderStream`, that is buffered into the fragment instead — otherwise
+  pages whose real content lives in `renderStream` (streaming demos, live
+  data) would show whatever placeholder their required `render()` returns.
+- Before swapping, `document` fires `mer:before-navigate` — pages with their
+  own inline scripts (polling loops, timers, listeners) should listen for
+  this and clean up (`clearInterval`, abort fetches, etc.), since shell-nav
+  doesn't destroy the JS realm the way a full page load would; anything left
+  running will throw trying to touch DOM nodes that are about to be removed.
 - The client swaps `data.body` into `#mer-shell` and sets `document.title`,
   then pushes the new URL via `history.pushState`.
-- A custom `mer:navigate` event fires after every swap (`document.addEventListener('mer:navigate', ...)`)
-  so page-specific JS can re-initialize after content changes.
+- **`<script>` tags in the swapped fragment are recreated (not just inserted)**
+  so the browser actually executes them — `innerHTML` never runs embedded
+  `<script>` tags per the HTML spec, so without this, any page relying on
+  inline scripts (streaming resolve/skeleton swaps, live polling) would
+  silently do nothing after a shell-nav.
+- A custom `mer:navigate` event fires after the swap and script execution
+  (`document.addEventListener('mer:navigate', e => ...)`, `e.detail.url` is
+  the new URL) so page-specific JS can re-initialize after content changes.
 
 ### Safe fallbacks
 

@@ -13,6 +13,16 @@
 // Server contract: a GET request with header `X-Mer-Shell: 1` gets back
 // `{"title": "...", "body": "...html fragment..."}` instead of the full
 // document (see src/server.zig / src/dispatch.zig `dispatchFragment`).
+//
+// Events on `document` (for pages with their own inline scripts):
+//   - `mer:before-navigate` — fired right before the old fragment is torn
+//     out. Listen for this to clearInterval/clearTimeout, abort fetches,
+//     or remove window-level listeners your page registered — shell-nav
+//     doesn't destroy the JS realm the way a full page load would, so
+//     anything you don't clean up keeps running against a DOM that's
+//     no longer there.
+//   - `mer:navigate` — fired after the new fragment is swapped in and its
+//     <script> tags have (re-)executed. `event.detail.url` is the new URL.
 (function () {
   var mount = document.getElementById("mer-shell");
   if (!mount) return;
@@ -37,6 +47,25 @@
     document.documentElement.classList.toggle("mer-shell-loading", on);
   }
 
+  // <script> tags inserted via innerHTML never execute (browser spec, not a
+  // bug) — recreate each one as a fresh element so the browser actually runs
+  // it, in document order, same as a normal page load. This matters for any
+  // page that relies on inline scripts for interactivity: streaming demos
+  // that swap skeletons for real content, live-polling dashboards, etc.
+  function executeScripts(container) {
+    var scripts = container.querySelectorAll("script");
+    for (var i = 0; i < scripts.length; i++) {
+      var old = scripts[i];
+      var fresh = document.createElement("script");
+      for (var j = 0; j < old.attributes.length; j++) {
+        var attr = old.attributes[j];
+        fresh.setAttribute(attr.name, attr.value);
+      }
+      fresh.textContent = old.textContent;
+      old.parentNode.replaceChild(fresh, old);
+    }
+  }
+
   function navigate(url, push) {
     setLoading(true);
     fetch(url, {
@@ -55,10 +84,16 @@
       })
       .then(function (data) {
         if (!data) return;
+        // Give the outgoing page a chance to clean up (clearInterval,
+        // abort in-flight fetches, remove window-level listeners) before
+        // its DOM is torn out from under it — shell-nav doesn't destroy
+        // the JS realm like a real navigation would.
+        document.dispatchEvent(new CustomEvent("mer:before-navigate"));
         mount.innerHTML = data.body;
         if (data.title) document.title = data.title;
         if (push) history.pushState({ merShell: true }, "", url);
         window.scrollTo(0, 0);
+        executeScripts(mount);
         document.dispatchEvent(
           new CustomEvent("mer:navigate", { detail: { url: url } })
         );
