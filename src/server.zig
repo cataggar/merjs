@@ -213,10 +213,11 @@ fn handleConn(ctx: *ConnCtx) void {
 }
 
 /// Replacement for std.time.nanoTimestamp() which was removed in Zig 0.16.
+/// std.c.clock_gettime is POSIX-only and breaks on native Windows (its
+/// clockid_t/pthread types collapse to zero-sized `void`), so use the
+/// portable std.Io.Clock API instead, backed by the shared runtime.io.
 fn nanoTimestamp() i128 {
-    var ts: std.c.timespec = undefined;
-    _ = std.c.clock_gettime(.REALTIME, &ts);
-    return @as(i128, ts.sec) * 1_000_000_000 + @as(i128, ts.nsec);
+    return @as(i128, std.Io.Clock.real.now(runtime.io).toNanoseconds());
 }
 
 fn serveRequest(
