@@ -31,16 +31,18 @@ jobs:
         run: zig build test
 
       - name: Cross-compile CLI
+        # Asset names use <arch>-<os> order to match cataggar/ghr's
+        # bare-binary naming heuristic (see release.yml for details).
         run: |
           mkdir -p release
           zig build cli -Doptimize=ReleaseSmall -Dtarget=aarch64-macos
-          cp zig-out/bin/mer release/mer-macos-aarch64
+          cp zig-out/bin/mer release/mer-aarch64-macos
           zig build cli -Doptimize=ReleaseSmall -Dtarget=x86_64-macos
-          cp zig-out/bin/mer release/mer-macos-x86_64
+          cp zig-out/bin/mer release/mer-x86_64-macos
           zig build cli -Doptimize=ReleaseSmall -Dtarget=x86_64-linux
-          cp zig-out/bin/mer release/mer-linux-x86_64
+          cp zig-out/bin/mer release/mer-x86_64-linux
           zig build cli -Doptimize=ReleaseSmall -Dtarget=aarch64-linux
-          cp zig-out/bin/mer release/mer-linux-aarch64
+          cp zig-out/bin/mer release/mer-aarch64-linux
 
       - name: Generate checksums
         working-directory: release
@@ -67,10 +69,10 @@ jobs:
       - name: Create beta release
         run: |
           gh release create "${{ steps.version.outputs.tag }}" \
-            release/mer-macos-aarch64 \
-            release/mer-macos-x86_64 \
-            release/mer-linux-x86_64 \
-            release/mer-linux-aarch64 \
+            release/mer-aarch64-macos \
+            release/mer-x86_64-macos \
+            release/mer-x86_64-linux \
+            release/mer-aarch64-linux \
             release/checksums.txt \
             --prerelease \
             --title "${{ steps.version.outputs.tag }}" \
@@ -81,10 +83,10 @@ jobs:
 
           | Platform | Binary | Size |
           |----------|--------|------|
-          | macOS Apple Silicon | \`mer-macos-aarch64\` | $(du -h release/mer-macos-aarch64 | cut -f1) |
-          | macOS Intel | \`mer-macos-x86_64\` | $(du -h release/mer-macos-x86_64 | cut -f1) |
-          | Linux x86_64 | \`mer-linux-x86_64\` | $(du -h release/mer-linux-x86_64 | cut -f1) |
-           | Linux ARM64 | \`mer-linux-aarch64\` | $(du -h release/mer-linux-aarch64 | cut -f1) |
+          | macOS Apple Silicon | \`mer-aarch64-macos\` | $(du -h release/mer-aarch64-macos | cut -f1) |
+          | macOS Intel | \`mer-x86_64-macos\` | $(du -h release/mer-x86_64-macos | cut -f1) |
+          | Linux x86_64 | \`mer-x86_64-linux\` | $(du -h release/mer-x86_64-linux | cut -f1) |
+           | Linux ARM64 | \`mer-aarch64-linux\` | $(du -h release/mer-aarch64-linux | cut -f1) |
 
            ### Install
            \`\`\`bash

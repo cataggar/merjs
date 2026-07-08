@@ -52,7 +52,7 @@ case "$ARCH" in
         ;;
 esac
 
-asset="mer-${os}-${arch}"
+asset="mer-${arch}-${os}"
 base_url="https://github.com/${REPO}/releases"
 if [ "$VERSION" = "latest" ]; then
     download_url="${base_url}/latest/download/${asset}"

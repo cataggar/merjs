@@ -33,16 +33,21 @@ jobs:
         run: zig build test
 
       - name: Cross-compile CLI
+        # Asset names use <arch>-<os> order (not <os>-<arch>) so that
+        # `ghr install`'s bare-binary heuristic derives the command name
+        # "mer" instead of falling back to the repo name "merjs" — see
+        # cataggar/ghr's deriveBareBinaryName, which expects the arch
+        # token immediately after the first separator.
         run: |
           mkdir -p release
           zig build cli -Doptimize=ReleaseSmall -Dtarget=aarch64-macos
-          cp zig-out/bin/mer release/mer-macos-aarch64
+          cp zig-out/bin/mer release/mer-aarch64-macos
           zig build cli -Doptimize=ReleaseSmall -Dtarget=x86_64-macos
-          cp zig-out/bin/mer release/mer-macos-x86_64
+          cp zig-out/bin/mer release/mer-x86_64-macos
           zig build cli -Doptimize=ReleaseSmall -Dtarget=x86_64-linux
-          cp zig-out/bin/mer release/mer-linux-x86_64
+          cp zig-out/bin/mer release/mer-x86_64-linux
           zig build cli -Doptimize=ReleaseSmall -Dtarget=aarch64-linux
-          cp zig-out/bin/mer release/mer-linux-aarch64
+          cp zig-out/bin/mer release/mer-aarch64-linux
 
       - name: Create install.sh release asset
         run: |
@@ -116,10 +121,10 @@ jobs:
 
           | Platform | Binary |
           |----------|--------|
-          | macOS (Apple Silicon) | `mer-macos-aarch64` |
-          | macOS (Intel) | `mer-macos-x86_64` |
-          | Linux (x86_64) | `mer-linux-x86_64` |
-          | Linux (ARM64) | `mer-linux-aarch64` |
+          | macOS (Apple Silicon) | `mer-aarch64-macos` |
+          | macOS (Intel) | `mer-x86_64-macos` |
+          | Linux (x86_64) | `mer-x86_64-linux` |
+          | Linux (ARM64) | `mer-aarch64-linux` |
 
           ### Verification
 
@@ -130,17 +135,17 @@ jobs:
 
           Or verify the sigstore bundle for a given binary:
           ```bash
-          cosign verify-blob --bundle mer-linux-x86_64.sigstore.json mer-linux-x86_64
+          cosign verify-blob --bundle mer-x86_64-linux.sigstore.json mer-x86_64-linux
           ```
           EOF
 
       - name: Create release
         run: |
           gh release create "${{ github.ref_name }}" \
-            release/mer-macos-aarch64 \
-            release/mer-macos-x86_64 \
-            release/mer-linux-x86_64 \
-            release/mer-linux-aarch64 \
+            release/mer-aarch64-macos \
+            release/mer-x86_64-macos \
+            release/mer-x86_64-linux \
+            release/mer-aarch64-linux \
             release/*.sigstore.json \
             release/install.sh \
             release/checksums.txt \
