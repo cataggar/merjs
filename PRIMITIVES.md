@@ -216,6 +216,60 @@ Comptime HTML structural validator. Use `mer.lint.check(node)`.
 
 ---
 
+## SSR Shell (client-side navigation, `X-Mer-Shell`)
+
+Progressive enhancement for SSR pages: same-origin link clicks and back/forward
+navigation are intercepted and fetched as fragments instead of triggering a
+full page reload. The server remains the single source of truth for
+rendering — there is no client-side router or virtual DOM, only a DOM swap.
+
+### Opt in
+
+1. Give your layout's swappable region an id of `mer-shell`:
+
+    ```zig
+    // app/layout.zig
+    w.writeAll("<main id=\"mer-shell\">") catch return body;
+    w.writeAll(body) catch return body;
+    w.writeAll("</main><script src=\"/mer-shell.js\" defer></script>") catch return body;
+    ```
+
+2. Copy `public/mer-shell.js` into your project (included by default in
+   projects scaffolded with `mer init`).
+
+### How it works
+
+- The client script listens for clicks on same-origin `<a>` links (skipping
+  `target="_blank"`, `download`, `data-mer-reload`, and hash links) and for
+  `popstate`.
+- Instead of a normal navigation, it does `fetch(url, { headers: { 'X-Mer-Shell': '1' } })`.
+- The server detects that header and calls the route's `render()` directly,
+  **skipping layout wrapping**, returning `{"title": "...", "body": "...html..."}`
+  as JSON instead of a full document.
+- The client swaps `data.body` into `#mer-shell` and sets `document.title`,
+  then pushes the new URL via `history.pushState`.
+- A custom `mer:navigate` event fires after every swap (`document.addEventListener('mer:navigate', ...)`)
+  so page-specific JS can re-initialize after content changes.
+
+### Safe fallbacks
+
+- No `#mer-shell` element on the page → the script does nothing (plain SSR).
+- Non-JSON response (e.g. a prerendered/static `dist/` page) → falls back to
+  a full `location.href` navigation.
+- Any fetch/network error → falls back to a full navigation.
+- Redirects (`mer.redirect(...)`) are followed transparently by `fetch`.
+- Cookies set by the route (`mer.withCookies(...)`) are still emitted as
+  `Set-Cookie` headers on shell responses.
+
+### When to use it
+
+- ✅ Multi-page SSR apps where you want SPA-like snappy navigation without a
+  client framework or Wasm DOM renderer.
+- ❌ Not a replacement for real interactivity — pair with small hand-written
+  JS (or WASM modules) for anything beyond navigation.
+
+---
+
 ## CLI (`mer`)
 
 ```

@@ -266,6 +266,27 @@ Use these CSS variables (defined in layout/global CSS) for consistency:
 
 Fonts: **DM Serif Display** (headings) + **DM Sans** (body). Both loaded from CDN via layout.
 
+## SSR Shell (opt-in client-side navigation)
+
+Progressive enhancement over SSR — not a client router or Wasm DOM renderer.
+Same-origin link clicks / back-forward are fetched as fragments instead of
+full page reloads; the server is still the sole renderer.
+
+- Opt in by giving the layout's content region `id="mer-shell"` and including
+  `<script src="/mer-shell.js" defer></script>` (already wired in the
+  `mer init` starter template's `app/layout.zig` + `public/mer-shell.js`).
+- Client sends `fetch(url, { headers: { 'X-Mer-Shell': '1' } })` on
+  intercepted navigations.
+- Server (`src/server.zig` + `dispatch.zig`'s `dispatchFragment`) detects that
+  header, skips layout wrapping, and returns `{"title", "body"}` JSON instead
+  of a full HTML document.
+- Client swaps `body` into `#mer-shell`, sets `document.title`, and does
+  `history.pushState`. Fires a `mer:navigate` DOM event after every swap.
+- Degrades safely: no `#mer-shell` element → script no-ops; non-JSON response
+  (e.g. prerendered `dist/` page) or fetch error → falls back to a full
+  `location.href` navigation.
+- See `PRIMITIVES.md` → "SSR Shell" for the full contract.
+
 ## Creating an API Route
 
 1. Create `api/<name>.zig`

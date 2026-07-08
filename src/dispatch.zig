@@ -63,6 +63,56 @@ pub fn dispatch(router: Router, req: mer.Request) mer.Response {
     return response;
 }
 
+/// Result of a fragment dispatch — the route's raw output, unwrapped by layout,
+/// plus its meta (so callers can propagate the title without parsing HTML).
+pub const FragmentResult = struct {
+    response: mer.Response,
+    meta: mer.Meta,
+};
+
+/// Like dispatch(), but returns the route's raw render() output WITHOUT layout
+/// wrapping. Used for SSR-shell client-side navigation (`X-Mer-Shell` requests):
+/// the client swaps only this fragment into the page's mount element, so
+/// wrapping it in the full layout would duplicate the nav/footer chrome.
+pub fn dispatchFragment(router: Router, req: mer.Request) FragmentResult {
+    var meta: mer.Meta = .{};
+    var params_buf: [8]mer.Param = undefined;
+
+    const response: mer.Response = blk: {
+        if (router.exact_map.get(req.path)) |idx| {
+            meta = router.routes[idx].meta;
+            break :blk router.routes[idx].render(req);
+        }
+        for (router.dynamic_routes) |route| {
+            if (matchRoute(route.path, req.path, &params_buf)) |n| {
+                meta = route.meta;
+                var dyn_req = req;
+                dyn_req.params = req.allocator.dupe(mer.Param, params_buf[0..n]) catch &.{};
+                break :blk route.render(dyn_req);
+            }
+        }
+        if (req.path.len > 1 and req.path[req.path.len - 1] == '/') {
+            const trimmed = req.path[0 .. req.path.len - 1];
+            if (router.exact_map.get(trimmed)) |idx| {
+                meta = router.routes[idx].meta;
+                break :blk router.routes[idx].render(req);
+            }
+            for (router.dynamic_routes) |route| {
+                if (matchRoute(route.path, trimmed, &params_buf)) |n| {
+                    meta = route.meta;
+                    var dyn_req = req;
+                    dyn_req.params = req.allocator.dupe(mer.Param, params_buf[0..n]) catch &.{};
+                    break :blk route.render(dyn_req);
+                }
+            }
+        }
+        if (router.not_found) |nf| break :blk nf(req);
+        break :blk mer.notFound();
+    };
+
+    return .{ .response = response, .meta = meta };
+}
+
 /// Result of a streaming dispatch — head/body/tail are separate for chunked flushing.
 pub const StreamResult = struct {
     head: []const u8,
@@ -211,4 +261,57 @@ fn bufWriteFn(ctx: *anyopaque, data: []const u8) void {
 
 fn bufFlushFn(ctx: *anyopaque) void {
     _ = ctx;
+}
+
+// ── Tests ────────────────────────────────────────────────────────────────────
+
+fn dummyFragmentRender(_: mer.Request) mer.Response {
+    return mer.html("<p>fragment</p>");
+}
+
+fn dummyLayoutWrap(alloc: std.mem.Allocator, path: []const u8, body: []const u8, meta: mer.Meta) []const u8 {
+    return std.fmt.allocPrint(alloc, "<!DOCTYPE html><title>{s}</title><nav>{s}</nav>{s}", .{ meta.title, path, body }) catch body;
+}
+
+test "dispatchFragment: returns unwrapped body and meta" {
+    const routes = [_]Route{
+        .{ .path = "/about", .render = dummyFragmentRender, .meta = .{ .title = "About Us" } },
+    };
+    var router = Router.init(std.testing.allocator, &routes);
+    defer router.deinit();
+    router.layout = dummyLayoutWrap;
+
+    const req = mer.Request.init(std.testing.allocator, .GET, "/about");
+    const result = dispatchFragment(router, req);
+
+    // Fragment body must NOT be wrapped by layout (no <!DOCTYPE> injected).
+    try std.testing.expectEqualStrings("<p>fragment</p>", result.response.body);
+    try std.testing.expectEqualStrings("About Us", result.meta.title);
+}
+
+test "dispatchFragment: dynamic route match" {
+    const routes = [_]Route{
+        .{ .path = "/users/:id", .render = dummyFragmentRender, .meta = .{ .title = "User" } },
+    };
+    var router = Router.init(std.testing.allocator, &routes);
+    defer router.deinit();
+
+    const req = mer.Request.init(std.testing.allocator, .GET, "/users/42");
+    const result = dispatchFragment(router, req);
+
+    try std.testing.expectEqualStrings("<p>fragment</p>", result.response.body);
+    try std.testing.expectEqualStrings("User", result.meta.title);
+}
+
+test "dispatchFragment: not found falls back to notFound response" {
+    const routes = [_]Route{
+        .{ .path = "/", .render = dummyFragmentRender },
+    };
+    var router = Router.init(std.testing.allocator, &routes);
+    defer router.deinit();
+
+    const req = mer.Request.init(std.testing.allocator, .GET, "/nope");
+    const result = dispatchFragment(router, req);
+
+    try std.testing.expectEqual(std.http.Status.not_found, result.response.status);
 }
