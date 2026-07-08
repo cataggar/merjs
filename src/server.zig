@@ -374,7 +374,7 @@ fn serveRequest(
                 stream_fn(req, &stream_writer);
 
                 // Flush tail + hot reload.
-                if (dev) try bw.writer.writeAll(dev_mod.hot_reload_script);
+                if (dev) try bw.writer.writeAll(dev_mod.hot_reload_script_inline);
                 try bw.writer.writeAll(parts.tail);
                 try bw.end();
                 return;
@@ -389,7 +389,7 @@ fn serveRequest(
     if (result.is_streaming) {
         var hot_reload_tail: []const u8 = "";
         if (dev) {
-            hot_reload_tail = dev_mod.hot_reload_script;
+            hot_reload_tail = dev_mod.hot_reload_script_inline;
         }
 
         const fixed = [1]std.http.Header{
