@@ -4,15 +4,6 @@
 const std = @import("std");
 const runtime = @import("runtime");
 
-const PthreadMutex = struct {
-    inner: std.c.pthread_mutex_t = std.c.PTHREAD_MUTEX_INITIALIZER,
-    pub fn lock(m: *PthreadMutex) void {
-        _ = std.c.pthread_mutex_lock(&m.inner);
-    }
-    pub fn unlock(m: *PthreadMutex) void {
-        _ = std.c.pthread_mutex_unlock(&m.inner);
-    }
-};
 const log = std.log.scoped(.watcher);
 
 pub const Client = struct {
@@ -38,7 +29,7 @@ pub const Watcher = struct {
     allocator: std.mem.Allocator,
     watch_dir: []const u8,
     clients: std.ArrayList(*Client),
-    mutex: PthreadMutex,
+    mutex: std.Io.Mutex,
     mtimes: std.StringHashMap(std.Io.Timestamp),
     io: std.Io,
 
@@ -47,7 +38,7 @@ pub const Watcher = struct {
             .allocator = allocator,
             .watch_dir = watch_dir,
             .clients = .empty,
-            .mutex = .{},
+            .mutex = .init,
             .mtimes = std.StringHashMap(std.Io.Timestamp).init(allocator),
             .io = runtime.io, // Use shared runtime.io instead of creating new Threaded
         };
@@ -61,14 +52,14 @@ pub const Watcher = struct {
     }
 
     pub fn addClient(self: *Watcher, client: *Client) !void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.mutex.lockUncancelable(self.io);
+        defer self.mutex.unlock(self.io);
         try self.clients.append(self.allocator, client);
     }
 
     fn broadcast(self: *Watcher) void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
+        self.mutex.lockUncancelable(self.io);
+        defer self.mutex.unlock(self.io);
         for (self.clients.items) |c| c.notify();
         self.clients.clearRetainingCapacity();
     }

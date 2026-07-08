@@ -94,8 +94,14 @@ pub fn build(b: *std.Build) void {
     run_codegen.setCwd(b.path("."));
     b.step("codegen", "Regenerate src/generated/routes.zig").dependOn(&run_codegen.step);
 
-    // ── Auto-run codegen before compiling (fresh clones just work) ───────────
-    exe.step.dependOn(&run_codegen.step);
+    // ── Auto-run codegen before compiling ───────────────────────────────────
+    // NOTE: `run_codegen` scans root-level app/ and api/ (empty in this repo —
+    // the framework's own demo lives in examples/site/ instead). Wiring it as
+    // a dependency of `exe` would silently overwrite the checked-in, correct
+    // src/generated/routes.zig (generated from examples/site/{app,api}) with
+    // an empty one on every build, breaking `zig build serve` for everyone.
+    // Run `zig build codegen` manually only when using root app/ + api/ as
+    // your own project (e.g. testing the framework in-place).
 
     // ── `zig build serve` ────────────────────────────────────────────────────
     const run_exe = b.addRunArtifact(exe);
@@ -203,6 +209,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .link_libc = true,
         });
+        file_test_mod.addImport("runtime", runtime_mod);
         test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = file_test_mod })).step);
     }
     {

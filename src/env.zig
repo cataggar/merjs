@@ -8,6 +8,7 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
+const runtime = @import("runtime");
 
 // ── In-memory table ──────────────────────────────────────────────────────────
 
@@ -63,19 +64,12 @@ pub fn get(name: []const u8) ?[]const u8 {
 pub fn loadDotenv(allocator: std.mem.Allocator) void {
     if (builtin.target.cpu.arch == .wasm32) return;
 
-    // 0.16: use raw C I/O since Dir methods need Io
-    const fd = std.c.open(".env", .{ .ACCMODE = .RDONLY }, @as(std.c.mode_t, 0));
-    if (fd < 0) return;
-    defer _ = std.c.close(fd);
-    // Read up to 64KB
-    const buf = allocator.alloc(u8, 64 * 1024) catch return;
-    var total: usize = 0;
-    while (total < buf.len) {
-        const n = std.posix.read(fd, buf[total..]) catch break;
-        if (n == 0) break;
-        total += n;
-    }
-    const content = buf[0..total];
+    // std.c.open's flags param collapses to a zero-sized type on native
+    // Windows (no POSIX open(2)), so use the portable std.Io.Dir API —
+    // consistent with static.zig/watcher.zig/prerender.zig. The returned
+    // buffer is intentionally never freed: `table` entries slice into it
+    // and must stay valid for the process lifetime.
+    const content = std.Io.Dir.cwd().readFileAlloc(runtime.io, ".env", allocator, .limited(64 * 1024)) catch return;
 
     var lines = std.mem.splitScalar(u8, content, '\n');
     while (lines.next()) |raw| {
