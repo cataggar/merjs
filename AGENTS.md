@@ -94,11 +94,12 @@ In production (`--no-dev`), errors log to stderr and return a clean 500.
 | Symptom | Fix |
 |---------|-----|
 | `zig build` fails with "missing fingerprint" | Run `zig build` once, copy the suggested value into `build.zig.zon` |
-| `codegen: wrote 0 routes` | Make sure `app/` and `api/` dirs exist with `.zig` files |
+| `codegen: wrote 0 routes` | Make sure `app/` and `api/` dirs exist with `.zig` files. **On Windows**, this repo's root `app`/`api`/`public` are git symlinks into `examples/site/` — see the symlink row below; if they're broken you'll also see this. |
 | Port 3000 in use | `zig build serve -- --port 8080` |
 | Server unreachable in Docker | Use `--host 0.0.0.0` |
 | CSS not working | Run `zig build css` (auto-downloads Tailwind CLI) or `mer add css` |
 | WASM not loading | Run `zig build wasm` to compile `.wasm` files to `public/` |
+| Windows: static assets 404, pages 404, or console error "MIME type ('text/html') is not executable" | Root `app`, `api`, and `public` are git symlinks into `examples/site/{app,api,public}`. Windows checks them out as plain text files (containing the target path) unless symlinks are enabled, so codegen finds 0 routes and static files 404 as HTML. Fix: `git config core.symlinks true` + enable Developer Mode + `git checkout -- app api public`, **or** skip that with junctions (no admin needed): `Remove-Item app,api,public -Force; New-Item -ItemType Junction -Path app -Target "$PWD\examples\site\app"; New-Item -ItemType Junction -Path api -Target "$PWD\examples\site\api"; New-Item -ItemType Junction -Path public -Target "$PWD\examples\site\public"` |
 
 ### Telemetry (Sentry + Datadog)
 
