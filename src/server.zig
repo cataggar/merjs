@@ -290,6 +290,18 @@ fn serveRequest(
         break :blk "";
     };
 
+    // SSR-shell client-side navigation: the client's mer-shell.js sends this
+    // header on same-origin link clicks / popstate instead of a full page load.
+    // We skip layout wrapping and return {title, body} as JSON so the client
+    // can swap just the mount element and update document.title in place.
+    const is_shell_nav: bool = blk: {
+        var it = std_req.iterateHeaders();
+        while (it.next()) |hdr| {
+            if (std.ascii.eqlIgnoreCase(hdr.name, "x-mer-shell")) break :blk true;
+        }
+        break :blk false;
+    };
+
     const body_bytes: []const u8 = blk: {
         const cl = std_req.head.content_length orelse break :blk "";
         if (cl == 0) break :blk "";
@@ -308,6 +320,19 @@ fn serveRequest(
     req.cookies_raw = cookies_raw;
 
     mer.h.setRenderAllocator(alloc);
+
+    // ── SSR-shell fragment navigation ───────────────────────────────────────
+    // Handled before the streaming/layout paths: shell-nav requests always
+    // want the raw fragment, never the full document or a chunked stream.
+    if (is_shell_nav and req.method == .GET) {
+        const frag = dispatch_mod.dispatchFragment(router.*, req);
+        if (frag.response.content_type == .redirect) {
+            try sendResponse(std_req, frag.response);
+        } else {
+            try sendShellFragment(alloc, std_req, frag.response, frag.meta);
+        }
+        return;
+    }
 
     // ── Check for true streaming render (renderStream) ─────────────────────
     // If the matched route exports renderStream and we have a stream_layout,
@@ -349,7 +374,7 @@ fn serveRequest(
                 stream_fn(req, &stream_writer);
 
                 // Flush tail + hot reload.
-                if (dev) try bw.writer.writeAll(dev_mod.hot_reload_script);
+                if (dev) try bw.writer.writeAll(dev_mod.hot_reload_script_inline);
                 try bw.writer.writeAll(parts.tail);
                 try bw.end();
                 return;
@@ -364,7 +389,7 @@ fn serveRequest(
     if (result.is_streaming) {
         var hot_reload_tail: []const u8 = "";
         if (dev) {
-            hot_reload_tail = dev_mod.hot_reload_script;
+            hot_reload_tail = dev_mod.hot_reload_script_inline;
         }
 
         const fixed = [1]std.http.Header{
@@ -464,6 +489,57 @@ fn sendResponse(std_req: *std.http.Server.Request, response: mer.Response) !void
     });
     markTtfb();
     try bw.writer.writeAll(response.body);
+    try bw.end();
+}
+
+/// Send an SSR-shell fragment as `{"title", "body", "extraHead"}` JSON.
+/// Consumed by `mer-shell.js` — it swaps `body` into the page's mount
+/// element, sets `document.title`, and replaces the page-specific `<head>`
+/// content (`extraHead` — usually the page's own `<style>` block from
+/// `meta.extra_head`) without a full page reload. Without this, a page's
+/// own CSS would never apply when reached via shell-nav, since that CSS is
+/// normally injected by the layout's wrap()/streamWrap(), which shell-nav
+/// intentionally skips.
+/// Cookies from the route's response (e.g. session writes) are preserved.
+fn sendShellFragment(
+    alloc: std.mem.Allocator,
+    std_req: *std.http.Server.Request,
+    response: mer.Response,
+    meta: mer.Meta,
+) !void {
+    var out: std.Io.Writer.Allocating = .init(alloc);
+    var jw: std.json.Stringify = .{ .writer = &out.writer };
+    jw.write(.{ .title = meta.title, .body = response.body, .extraHead = meta.extra_head orelse "" }) catch {};
+    const json_body = out.written();
+
+    var cookie_val_bufs: [MAX_COOKIES][512]u8 = undefined;
+    var cookie_headers: [MAX_COOKIES]std.http.Header = undefined;
+    const n_cookies = @min(response.cookies.len, MAX_COOKIES);
+    for (response.cookies[0..n_cookies], 0..) |ck, i| {
+        cookie_headers[i] = .{
+            .name = "set-cookie",
+            .value = ck.headerValue(&cookie_val_bufs[i]),
+        };
+    }
+
+    const fixed = [1]std.http.Header{
+        .{ .name = "content-type", .value = "application/json" },
+    } ++ security_headers;
+
+    var extra: [fixed.len + MAX_COOKIES]std.http.Header = undefined;
+    @memcpy(extra[0..fixed.len], &fixed);
+    @memcpy(extra[fixed.len .. fixed.len + n_cookies], cookie_headers[0..n_cookies]);
+
+    var header_buf: [4096]u8 = undefined;
+    var bw = try std_req.respondStreaming(&header_buf, .{
+        .content_length = json_body.len,
+        .respond_options = .{
+            .status = response.status,
+            .extra_headers = extra[0 .. fixed.len + n_cookies],
+        },
+    });
+    markTtfb();
+    try bw.writer.writeAll(json_body);
     try bw.end();
 }
 

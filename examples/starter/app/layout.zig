@@ -59,6 +59,7 @@ pub fn wrap(allocator: std.mem.Allocator, path: []const u8, body: []const u8, me
     }
 
     w.writeAll(
+        \\  <style>.mer-shell-loading{cursor:progress}</style>
         \\</head>
         \\<body>
         \\<div class="layout">
@@ -69,6 +70,7 @@ pub fn wrap(allocator: std.mem.Allocator, path: []const u8, body: []const u8, me
         \\      <a href="/api/hello">API</a>
         \\    </nav>
         \\  </header>
+        \\  <main id="mer-shell" class="page">
         \\
     ) catch return body;
 
@@ -76,10 +78,12 @@ pub fn wrap(allocator: std.mem.Allocator, path: []const u8, body: []const u8, me
 
     w.writeAll(
         \\
+        \\  </main>
         \\  <footer class="layout-footer">
         \\    Built with <a href="https://github.com/justrach/merjs">merjs</a> &middot; Zig 0.15
         \\  </footer>
         \\</div>
+        \\<script src="/mer-shell.js" defer></script>
         \\</body>
         \\</html>
     ) catch return body;

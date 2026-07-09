@@ -126,6 +126,7 @@ const template_files = [_]TemplateFile{
     .{ .path = "app/404.zig", .content = @embedFile("examples/starter/app/404.zig") },
     .{ .path = "api/hello.zig", .content = @embedFile("examples/starter/api/hello.zig") },
     .{ .path = "public/.gitkeep", .content = "" },
+    .{ .path = "public/mer-shell.js", .content = @embedFile("examples/starter/public/mer-shell.js") },
     .{ .path = "tools/codegen.zig", .content = @embedFile("tools/codegen.zig") },
 };
 
@@ -424,7 +425,7 @@ fn cmdInit(alloc: std.mem.Allocator, name: []const u8) !void {
 
     // Write template files.
     try writeTemplateFiles(dir);
-    file_count += 7; // 7 template files
+    file_count += 8; // 8 template files
 
     // Write build.zig.
     {
@@ -664,6 +665,7 @@ test "writeTemplateFiles emits starter scaffold files" {
     try tmp.dir.access(runtime.io, "app/404.zig", .{});
     try tmp.dir.access(runtime.io, "api/hello.zig", .{});
     try tmp.dir.access(runtime.io, "public/.gitkeep", .{});
+    try tmp.dir.access(runtime.io, "public/mer-shell.js", .{});
     try tmp.dir.access(runtime.io, "tools/codegen.zig", .{});
 }
 

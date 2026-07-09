@@ -20,6 +20,23 @@ pub const hot_reload_script =
     \\</body>
 ;
 
+/// Same script, without the trailing `</body>`. `hot_reload_script` bakes in
+/// a `</body>` so `injectHotReload` can *replace* the page's real `</body>`
+/// with it (see below) — but the streaming code paths in server.zig just
+/// *append* this before the real tail (`</main><footer>...</html>`), so using
+/// the `</body>`-terminated version there closes the document early,
+/// splitting later real content (footer, `<script src="/mer-shell.js">`)
+/// into a stray second `<body>` that most browsers silently "recover" from,
+/// but shouldn't have to.
+pub const hot_reload_script_inline =
+    \\<script>
+    \\(function(){
+    \\  const es = new EventSource('/_mer/events');
+    \\  es.onmessage = () => location.reload();
+    \\})();
+    \\</script>
+;
+
 pub fn injectHotReload(alloc: std.mem.Allocator, body: []const u8) ![]u8 {
     const marker = "</body>";
     const idx = std.mem.lastIndexOf(u8, body, marker) orelse return error.NoBodyTag;

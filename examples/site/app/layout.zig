@@ -111,6 +111,7 @@ pub fn wrap(allocator: std.mem.Allocator, path: []const u8, body: []const u8, me
         \\      <a href="/docs">Docs</a>
         \\    </nav>
         \\  </header>
+        \\  <main id="mer-shell">
         \\
     ) catch return body;
 
@@ -118,10 +119,12 @@ pub fn wrap(allocator: std.mem.Allocator, path: []const u8, body: []const u8, me
 
     w.writeAll(
         \\
+        \\  </main>
         \\  <footer class="layout-footer">
         \\    Built with <a href="https://github.com/justrach/merjs">merjs</a> &middot; Zig 0.16 &middot; zero node_modules
         \\  </footer>
         \\</div>
+        \\<script src="/mer-shell.js" defer></script>
         \\</body>
         \\</html>
     ) catch return body;
@@ -218,15 +221,18 @@ pub fn streamWrap(allocator: std.mem.Allocator, path: []const u8, meta: mer.Meta
         \\      <a href="/docs">Docs</a>
         \\    </nav>
         \\  </header>
+        \\  <main id="mer-shell">
         \\
     ) catch {};
 
     const tail =
         \\
+        \\  </main>
         \\  <footer class="layout-footer">
         \\    Built with <a href="https://github.com/justrach/merjs">merjs</a> &middot; Zig 0.15 &middot; zero node_modules
         \\  </footer>
         \\</div>
+        \\<script src="/mer-shell.js" defer></script>
         \\</body>
         \\</html>
     ;

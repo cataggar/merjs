@@ -73,13 +73,19 @@ const html_bottom =
     \\  bottom polls <code>/api/time</code> every second
     \\</p>
     \\<script>
+    \\  (function() {
     \\  async function tick() {
+    \\    const el = document.getElementById('live-ts');
+    \\    if (!el) return; // page navigated away via shell-nav; stop touching a gone DOM
     \\    const d = await fetch('/api/time').then(r => r.json());
-    \\    document.getElementById('live-ts').textContent = d.timestamp;
+    \\    el.textContent = d.timestamp;
     \\    document.getElementById('live-human').textContent = new Date(d.timestamp * 1000).toLocaleTimeString();
     \\    document.getElementById('live-iso').textContent = d.iso;
     \\  }
-    \\  tick(); setInterval(tick, 1000);
+    \\  tick();
+    \\  const intervalId = setInterval(tick, 1000);
+    \\  document.addEventListener('mer:before-navigate', function() { clearInterval(intervalId); }, { once: true });
+    \\  })();
     \\  const ssrTs = parseInt(document.getElementById('ssr-ts').textContent, 10);
     \\  const effectiveTs = ssrTs > 0 ? ssrTs : Math.floor(Date.now() / 1000);
     \\  if (ssrTs === 0) document.getElementById('ssr-ts').textContent = effectiveTs;
