@@ -1,16 +1,21 @@
 // session.zig — HMAC-based session tokens.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const env = @import("env.zig").get;
+const runtime = @import("runtime");
 
 const SessionHmac = std.crypto.auth.hmac.sha2.HmacSha256;
 const SESSION_HMAC_HEX_LEN = SessionHmac.mac_length * 2;
 
-/// Get current Unix timestamp using clock_gettime (Zig 0.16 compatible).
+/// Get current Unix timestamp via std.Io.Clock (Zig 0.16 native API —
+/// std.c.clock_gettime's `clockid_t` param breaks on the x86_64_win
+/// calling convention, and std.time's old timestamp helpers were removed).
+/// Uses std.testing.io in test builds since runtime.io is only
+/// initialized by the app's own entrypoint (main.zig/cli.zig/codegen.zig).
 fn currentTimestamp() i64 {
-    var ts: std.c.timespec = undefined;
-    _ = std.c.clock_gettime(.REALTIME, &ts);
-    return ts.sec;
+    const io: std.Io = if (builtin.is_test) std.testing.io else runtime.io;
+    return std.Io.Clock.real.now(io).toSeconds();
 }
 
 /// Default session lifetime: 7 days.

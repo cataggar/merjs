@@ -6,13 +6,6 @@ const mer = @import("mer");
 const server = @import("server.zig");
 const log = std.log.scoped(.static);
 
-// --- Zig 0.16 shim: Thread.Mutex was removed ---
-const PthreadMutex = struct {
-    inner: std.c.pthread_mutex_t = std.c.PTHREAD_MUTEX_INITIALIZER,
-    pub fn lock(m: *PthreadMutex) void { _ = std.c.pthread_mutex_lock(&m.inner); }
-    pub fn unlock(m: *PthreadMutex) void { _ = std.c.pthread_mutex_unlock(&m.inner); }
-};
-
 const mime_table = [_]struct { ext: []const u8, ct: mer.ContentType }{
     .{ .ext = ".html", .ct = .html },
     .{ .ext = ".htm", .ct = .html },
@@ -47,7 +40,7 @@ const CacheEntry = struct {
 /// Safe for concurrent reads after initial population (no mutation after insert).
 var cache: std.StringHashMapUnmanaged(CacheEntry) = .{};
 var cache_alloc: std.mem.Allocator = undefined;
-var cache_mu: PthreadMutex = .{};
+var cache_mu: std.Io.Mutex = .init;
 var cache_init_done: bool = false;
 
 pub fn initCache(alloc: std.mem.Allocator) void {
@@ -55,17 +48,17 @@ pub fn initCache(alloc: std.mem.Allocator) void {
     cache_init_done = true;
 }
 
-fn getCached(rel: []const u8) ?CacheEntry {
+fn getCached(io: std.Io, rel: []const u8) ?CacheEntry {
     if (!cache_init_done) return null;
-    cache_mu.lock();
-    defer cache_mu.unlock();
+    cache_mu.lockUncancelable(io);
+    defer cache_mu.unlock(io);
     return cache.get(rel);
 }
 
-fn putCache(rel: []const u8, body: []const u8, ct: mer.ContentType) void {
+fn putCache(io: std.Io, rel: []const u8, body: []const u8, ct: mer.ContentType) void {
     if (!cache_init_done) return;
-    cache_mu.lock();
-    defer cache_mu.unlock();
+    cache_mu.lockUncancelable(io);
+    defer cache_mu.unlock(io);
     const key = cache_alloc.dupe(u8, rel) catch return;
     const owned_body = cache_alloc.dupe(u8, body) catch {
         cache_alloc.free(key);
@@ -91,7 +84,7 @@ pub fn tryServe(
     if (rel.len == 0) return null;
 
     // Try cache first.
-    if (getCached(rel)) |entry| {
+    if (getCached(io, rel)) |entry| {
         return sendStatic(std_req, entry.body, entry.ct);
     }
 
@@ -107,7 +100,7 @@ pub fn tryServe(
     const ct = mimeForPath(rel);
 
     // Cache for future requests.
-    putCache(rel, body, ct);
+    putCache(io, rel, body, ct);
 
     return sendStatic(std_req, body, ct);
 }

@@ -113,6 +113,20 @@ pub fn env(name: []const u8) ?[]const u8 {
 }
 pub const loadDotenv = env_mod.loadDotenv;
 
+// --- Clock --------------------------------------------------------------------
+
+const runtime_mod = @import("runtime");
+
+/// Current Unix timestamp (seconds since epoch), backed by std.Io.Clock.
+/// Use this instead of hand-rolling std.c.clock_gettime in handlers — the
+/// libc `clockid_t`/`timespec` types collapse to zero-sized `void` under the
+/// x86_64_win calling convention, so std.c.clock_gettime never compiles on
+/// native Windows. Not available on wasm32 (Workers) — guard with
+/// `builtin.target.cpu.arch != .wasm32` as usual.
+pub fn unixTimestamp() i64 {
+    return std.Io.Clock.real.now(runtime_mod.io).toSeconds();
+}
+
 // --- Session (src/session.zig) ----------------------------------------------
 
 pub const Session = session_mod.Session;
