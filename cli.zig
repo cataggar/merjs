@@ -41,10 +41,11 @@ fn resolveInPath(alloc: std.mem.Allocator, name: []const u8) ![]const u8 {
 }
 
 /// Get current Unix timestamp in milliseconds (vanity metric helper).
+/// std.c.clock_gettime is POSIX-only and breaks on native Windows (its
+/// clockid_t param collapses to zero-sized `void`), so use the portable
+/// std.Io.Clock API instead, matching src/mer.zig's unixTimestamp().
 fn currentMs() i64 {
-    var ts: std.c.timespec = undefined;
-    _ = std.c.clock_gettime(.REALTIME, &ts);
-    return @as(i64, ts.sec) * 1000 + @divTrunc(ts.nsec, 1_000_000);
+    return std.Io.Clock.real.now(runtime.io).toMilliseconds();
 }
 
 pub fn main(init: std.process.Init.Minimal) !void {
