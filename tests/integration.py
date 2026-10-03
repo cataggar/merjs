@@ -16,7 +16,7 @@ SUFFIX = ".exe" if os.name == "nt" else ""
 
 
 def run(*args, cwd=ROOT):
-    result = subprocess.run(args, cwd=cwd, text=True, stdout=subprocess.PIPE,
+    result = subprocess.run(args, cwd=cwd, text=True, encoding="utf-8", stdout=subprocess.PIPE,
                             stderr=subprocess.STDOUT)
     if result.returncode:
         print(result.stdout, flush=True)
@@ -45,7 +45,7 @@ def server(binary, cwd):
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
     base = f"http://127.0.0.1:{port}"
-    with tempfile.TemporaryFile(mode="w+t") as log:
+    with tempfile.TemporaryFile(mode="w+t", encoding="utf-8") as log:
         process = subprocess.Popen(
             [str(binary), "--no-dev", "--host", "127.0.0.1", "--port", str(port)],
             cwd=cwd, stdout=log, stderr=subprocess.STDOUT)
@@ -81,19 +81,19 @@ def check_scaffold(source):
         app = pathlib.Path(temporary) / "app"
         run(str(cli), "init", str(app))
         manifest = app / "build.zig.zon"
-        assert source in manifest.read_text()
-        assert manifest.read_text().count(".hash =") == 1
+        assert source in manifest.read_text(encoding="utf-8")
+        assert manifest.read_text(encoding="utf-8").count(".hash =") == 1
         previous_source = "git+https://github.com/cataggar/merjs.git#23dcf37a471d83469bd2d705f007aea51ceed953"
         previous_hash = "merjs-0.2.5-qL9Lkg3JYABh2AupQ9X64qsQ-bNQLv5SSGnHVtb2j9UR"
-        text = manifest.read_text().replace(source, previous_source)
+        text = manifest.read_text(encoding="utf-8").replace(source, previous_source)
         hash_start = text.index('.hash = "') + len('.hash = "')
         hash_end = text.index('"', hash_start)
-        manifest.write_text(text[:hash_start] + previous_hash + text[hash_end:])
+        manifest.write_text(text[:hash_start] + previous_hash + text[hash_end:], encoding="utf-8")
         run(str(cli), "update", cwd=app)
-        assert source in manifest.read_text()
-        assert previous_source not in manifest.read_text()
-        assert previous_hash not in manifest.read_text()
-        assert manifest.read_text().count(".hash =") == 1
+        assert source in manifest.read_text(encoding="utf-8")
+        assert previous_source not in manifest.read_text(encoding="utf-8")
+        assert previous_hash not in manifest.read_text(encoding="utf-8")
+        assert manifest.read_text(encoding="utf-8").count(".hash =") == 1
         run("zig", "build", "test", cwd=app)
         run(str(cli), "build", cwd=app)
         binary = app / "zig-out" / "bin" / f"app{SUFFIX}"
@@ -107,35 +107,35 @@ def check_scaffold(source):
             'pub const meta: mer.Meta = .{ .title = "Cache fixture" };\n'
             'pub fn render(_: mer.Request) mer.Response {\n'
             '    return mer.html("<h1>nested-route</h1>");\n'
-            '}\n')
+            '}\n', encoding="utf-8")
         run("zig", "build", cwd=app)
-        assert '"/nested/:id"' in generated.read_text()
-        assert '@import("app/nested/[id]")' in generated.read_text()
+        assert '"/nested/:id"' in generated.read_text(encoding="utf-8")
+        assert '@import("app/nested/[id]")' in generated.read_text(encoding="utf-8")
         with server(binary, app) as base:
             status, _, body = request(base, "/nested/42")
             assert status == 200 and b"nested-route" in body
 
         page = page.rename(nested / "renamed.zig")
         run("zig", "build", cwd=app)
-        assert '"/nested/:id"' not in generated.read_text()
-        assert '"/nested/renamed"' in generated.read_text()
+        assert '"/nested/:id"' not in generated.read_text(encoding="utf-8")
+        assert '"/nested/renamed"' in generated.read_text(encoding="utf-8")
         with server(binary, app) as base:
             assert request(base, "/nested/renamed")[0] == 200
 
         page.unlink()
         run("zig", "build", cwd=app)
-        assert '"/nested/renamed"' not in generated.read_text()
+        assert '"/nested/renamed"' not in generated.read_text(encoding="utf-8")
         api = app / "api"
         hello = api / "hello.zig"
-        hello_source = hello.read_text()
+        hello_source = hello.read_text(encoding="utf-8")
         hello.unlink()
         api.rmdir()
         run("zig", "build", cwd=app)
-        assert '"/api/hello"' not in generated.read_text()
+        assert '"/api/hello"' not in generated.read_text(encoding="utf-8")
         api.mkdir()
-        hello.write_text(hello_source)
+        hello.write_text(hello_source, encoding="utf-8")
         run("zig", "build", cwd=app)
-        assert '"/api/hello"' in generated.read_text()
+        assert '"/api/hello"' in generated.read_text(encoding="utf-8")
         with server(binary, app) as base:
             assert request(base, "/nested/renamed")[0] == 404
             status, headers, body = request(base, "/")
