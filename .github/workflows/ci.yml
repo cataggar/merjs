@@ -44,7 +44,7 @@ jobs:
       - name: Reflection and codegen tests
         run: |
           zig test src/mercss.zig
-          zig test --dep runtime -Mroot=tools/codegen.zig -Mruntime=src/runtime.zig
+          zig test --dep runtime "-Mroot=tools/codegen.zig" "-Mruntime=src/runtime.zig"
 
       - name: Build CLI
         run: zig build cli -Doptimize=safe
