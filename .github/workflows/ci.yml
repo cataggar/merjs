@@ -58,7 +58,7 @@ jobs:
 
       - name: Standalone UI showcase
         working-directory: examples/ui-showcase
-        run: zig build test
+        run: zig build test install
 
       - name: Deployment targets and static-asset cache
         if: runner.os == 'Linux'

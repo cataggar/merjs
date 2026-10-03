@@ -5,8 +5,8 @@
     .minimum_zig_version = "0.17.0",
     .dependencies = .{
         .merjs = .{
-            .url = "git+https://github.com/cataggar/merjs.git#0705360b2b4eb55a46d3f0908fad42b2402b8e00",
-            .hash = "merjs-0.2.54-qL9LkpTEYgDxympdTBwXMJ3LzueaCMbcDot_Zo5MM31c",
+            .url = "git+https://github.com/cataggar/merjs.git#b9a39cabae1a8c3c38ea3dc0b8b431ef48974932",
+            .hash = "merjs-0.2.54-qL9LkpbVYgCwqfh3sbryxpv9ZrRNpugXb75hrqHleokf",
         },
     },
     .paths = .{

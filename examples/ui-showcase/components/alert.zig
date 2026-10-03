@@ -26,5 +26,5 @@ pub fn render(comptime props: Props) h.Node {
         base_classes,
         variant_cls,
     });
-    return h.div(.{ .class = classes, .extra = &.{.{ .name = "role", .value = "alert" }} }, props.description);
+    return h.div(.{ .class = classes, .role = "alert" }, props.description);
 }

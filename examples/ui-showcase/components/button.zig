@@ -62,14 +62,18 @@ pub fn render(comptime props: Props) h.Node {
         size_cls,
         props.class orelse "",
     });
-    return h.button(
+    const node = comptime h.button(
         .{
             .class = classes,
             .id = props.id,
             .type = props.type,
             .disabled = props.disabled,
-            .extra = if (props.on_click) |handler| &.{.{ .name = "onclick", .value = handler }} else &.{},
         },
         props.label,
     );
+    var element = node.element;
+    if (props.on_click) |handler| {
+        element.attrs = node.element.attrs ++ &[_]h.Attr{.{ .name = "onclick", .value = handler }};
+    }
+    return .{ .element = element };
 }

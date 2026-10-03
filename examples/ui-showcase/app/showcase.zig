@@ -21,15 +21,15 @@ pub fn render(req: mer.Request) mer.Response {
 
 fn page() h.Node {
     @setEvalBranchQuota(20_000);
-    return h.div(.{ .class = "max-w-4xl mx-auto p-8 space-y-12" }, &.{
+    return h.div(.{ .class = "max-w-4xl mx-auto p-8 space-y-12" }, &[_]h.Node{
         // Header
         h.h1(.{ .class = "text-4xl font-bold mb-4" }, "merlion-ui Showcase"),
         h.p(.{ .class = "text-slate-600 mb-8" }, "Beautiful, copy-pasteable UI components for merlionjs. Like shadcn/ui, but for Zig."),
 
         // Button Section
-        h.section(.{ .class = "space-y-4" }, &.{
+        h.section(.{ .class = "space-y-4" }, &[_]h.Node{
             h.h2(.{ .class = "text-2xl font-semibold" }, "Buttons"),
-            h.div(.{ .class = "flex flex-wrap gap-4" }, &.{
+            h.div(.{ .class = "flex flex-wrap gap-4" }, &[_]h.Node{
                 Button.render(.{ .label = "Primary", .variant = .primary }),
                 Button.render(.{ .label = "Secondary", .variant = .secondary }),
                 Button.render(.{ .label = "Destructive", .variant = .destructive }),
@@ -40,10 +40,10 @@ fn page() h.Node {
         }),
 
         // Card Section
-        h.section(.{ .class = "space-y-4" }, &.{
+        h.section(.{ .class = "space-y-4" }, &[_]h.Node{
             h.h2(.{ .class = "text-2xl font-semibold" }, "Cards"),
             Card.render(.{
-                .children = &.{
+                .children = &[_]h.Node{
                     h.h3(.{ .class = "text-lg font-medium mb-2" }, "Card Title"),
                     h.p(.{ .class = "text-slate-600" }, "This is a card component with content inside."),
                 },
@@ -51,18 +51,18 @@ fn page() h.Node {
         }),
 
         // Input Section
-        h.section(.{ .class = "space-y-4" }, &.{
+        h.section(.{ .class = "space-y-4" }, &[_]h.Node{
             h.h2(.{ .class = "text-2xl font-semibold" }, "Inputs"),
-            h.div(.{ .class = "max-w-md space-y-4" }, &.{
+            h.div(.{ .class = "max-w-md space-y-4" }, &[_]h.Node{
                 Input.render(.{ .name = "email", .type = "email", .label = "Email", .placeholder = "you@example.com" }),
                 Input.render(.{ .name = "password", .type = "password", .label = "Password", .placeholder = "••••••••" }),
             }),
         }),
 
         // Badge Section
-        h.section(.{ .class = "space-y-4" }, &.{
+        h.section(.{ .class = "space-y-4" }, &[_]h.Node{
             h.h2(.{ .class = "text-2xl font-semibold" }, "Badges"),
-            h.div(.{ .class = "flex flex-wrap gap-4" }, &.{
+            h.div(.{ .class = "flex flex-wrap gap-4" }, &[_]h.Node{
                 Badge.render(.{ .label = "Default", .variant = .default }),
                 Badge.render(.{ .label = "Secondary", .variant = .secondary }),
                 Badge.render(.{ .label = "Destructive", .variant = .destructive }),
@@ -71,9 +71,9 @@ fn page() h.Node {
         }),
 
         // Alert Section
-        h.section(.{ .class = "space-y-4" }, &.{
+        h.section(.{ .class = "space-y-4" }, &[_]h.Node{
             h.h2(.{ .class = "text-2xl font-semibold" }, "Alerts"),
-            h.div(.{ .class = "space-y-4" }, &.{
+            h.div(.{ .class = "space-y-4" }, &[_]h.Node{
                 Alert.render(.{ .title = "Info", .description = "This is a default alert message.", .variant = .default }),
                 Alert.render(.{ .title = "Error", .description = "Something went wrong! This is a destructive alert.", .variant = .destructive }),
             }),
