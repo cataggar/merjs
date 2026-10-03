@@ -35,18 +35,6 @@ pub fn addExamples(
         .optimize = .small,
     });
     kanban_mod.addImport("mer", mer_mod);
-    const router_mod = b.createModule(.{
-        .root_source_file = b.path("src/router.zig"),
-        .imports = &.{.{ .name = "mer", .module = mer_mod }},
-    });
-    kanban_mod.addImport("router.zig", router_mod);
-    kanban_mod.addImport("dispatch.zig", b.createModule(.{
-        .root_source_file = b.path("src/dispatch.zig"),
-        .imports = &.{
-            .{ .name = "mer", .module = mer_mod },
-            .{ .name = "router.zig", .module = router_mod },
-        },
-    }));
     helpers.addDirModules(b, kanban_mod, mer_mod, "examples/kanban/app", "app", &.{});
     const kanban_wasm = b.addExecutable(.{
         .name = "merjs",

@@ -15,7 +15,7 @@
 <h3 align="center">Next.js-style web framework. Written in Zig. Zero Node.js.</h3>
 
 <p align="center">
-  File-based routing · SSR · Type-safe APIs · Hot reload · WASM client logic · Cloudflare Workers
+  File-based routing · SSR · Type-safe APIs · Hot reload · WASM client logic · Cloudflare Workers · Fastly Compute
 </p>
 
 <p align="center">
@@ -23,7 +23,7 @@
   <a href="#-features">Features</a> ·
   <a href="#-demo">Demo</a> ·
   <a href="#-how-it-works">How It Works</a> ·
-  <a href="#-deploy-to-cloudflare-workers">Deploy</a> ·
+  <a href="#-deploy">Deploy</a> ·
   <a href="CHANGELOG.md">Changelog</a>
 </p>
 
@@ -51,6 +51,10 @@ Optimization modes are `debug`, `safe`, `fast`, and `small`.
 The pinned dhi revision supports 0.17's field-name/type reflection APIs.
 The cataggar fork retains portable Windows I/O, Threaded I/O on Linux,
 and its GitHub image CSP allowances.
+Its CLI uses `cataggar/merjs` for both `mer init` and `mer update`. Build from
+this fork to use these changes; published upstream binaries may differ.
+For testing a candidate revision, build the CLI with
+`-Dmerjs-url=git+https://github.com/cataggar/merjs.git#<commit>`.
 
 ### Option A: One-line install (recommended)
 
@@ -85,10 +89,10 @@ mer dev
 ### Option C: Clone the repo
 
 ```bash
-git clone https://github.com/justrach/merjs.git
+git clone https://github.com/cataggar/merjs.git
 cd merjs
 
-zig build codegen   # scan app/ and api/, generate routes
+zig build codegen   # scan examples/site/{app,api}, generate demo routes
 zig build wasm      # compile wasm/ → public/*.wasm
 zig build serve     # dev server on :3000 with hot reload
 ```
@@ -98,11 +102,15 @@ zig build serve     # dev server on :3000 with hot reload
 
 Visit `http://localhost:3000`.
 
+The standalone UI example builds with `cd examples/ui-showcase && zig build test install`.
+Its shared components live in `components/`, outside the file-based `app/`
+routes, and its HTML node tree is constructed at compile time.
+
 ---
 
 ## Performance
 
-**Local benchmarks** (Apple M-series, `wrk -t4 -c50 -d10s`, `-Doptimize=ReleaseSmall`):
+**Local benchmarks** (Apple M-series, `wrk -t4 -c50 -d10s`, `-Doptimize=small`):
 
 |                        | **merjs**                  | **Next.js**                    |
 | ---------------------- | -------------------------- | ------------------------------ |
@@ -228,11 +236,14 @@ If you use merjs as a Zig dependency, prefer its exported API instead of reachin
 
 ```zig
 const merjs_dep = b.dependency("merjs", .{});
-const mer_mod = merjs_dep.module("mer");
-const server_mod = merjs_dep.module("server");
+const mer_mod = merjs_dep.module("mer");         // framework public API
+const runtime_mod = merjs_dep.module("runtime"); // std.Io runtime instance
+const server_mod = merjs_dep.module("server");   // HTTP server entry
+const codegen_mod = merjs_dep.module("codegen"); // route generator
+const worker_mod = merjs_dep.module("worker");   // Cloudflare Workers entry
 ```
 
-Fresh `mer init` apps also vendor their own `tools/codegen.zig`, so route generation no longer depends on internal merjs package paths.
+Every entry point is a named module, so consumer `build.zig` files never reach into internal paths like `src/main.zig` or `tools/codegen.zig`. Fresh `mer init` apps still vendor their own `tools/codegen.zig` by default, so route generation works even without the module.
 
 ---
 
@@ -297,9 +308,68 @@ Singapore data dashboard: **[sgdata.merlionjs.com](https://sgdata.merlionjs.com)
 
 ---
 
-## Deploy to Cloudflare Workers
+## Deploy
 
-1. Edit `worker/wrangler.toml` — set your project name, route/domain, and any R2 bindings you need.
+merjs ships ready-to-go configs for every major host. The same Docker image works
+everywhere; PaaS providers inject `PORT` and `main.zig` reads it. Health checks
+hit `/_mer/health` (always available, no extra setup).
+
+### Docker (any host, any machine)
+
+```bash
+docker build -t merjs .
+docker run --rm -p 3000:3000 merjs
+# or:  docker compose up --build
+```
+
+The image:
+- Pins official Zig 0.17.0 (matches `build.zig.zon`)
+- Runs as a non-root user (`uid 10001`)
+- Uses `tini` as PID 1 so `Ctrl-C` and orchestrator stop signals work
+- Has a `HEALTHCHECK` against `/_mer/health`
+- Multi-arch: `linux/amd64` + `linux/arm64`
+
+A multi-arch image is published to GHCR on every tag:
+
+```bash
+docker pull ghcr.io/justrach/merjs:latest
+docker run --rm -p 3000:3000 ghcr.io/justrach/merjs:latest
+```
+
+### Fly.io
+
+```bash
+flyctl launch --copy-config --no-deploy
+flyctl deploy
+```
+
+`fly.toml` is included. Fly injects `PORT` and the health check hits `/_mer/health`.
+
+### Render.com
+
+`render.yaml` is included — push the repo and click **New Blueprint Instance** in
+the Render dashboard.
+
+### Railway
+
+`railway.json` is included — point Railway at the repo and it picks up the
+Dockerfile + healthcheck automatically.
+
+### DigitalOcean App Platform
+
+```bash
+doctl apps create --spec .do/app.yaml
+```
+
+### Heroku-style PaaS (Procfile)
+
+A `Procfile` is included for any platform that respects the
+[Heroku 12-factor process model](https://12factor.net/) — it runs the binary
+directly with `--no-dev`, and the platform's `PORT` env var binds correctly.
+
+### Cloudflare Workers (zero cold start, edge)
+
+1. Edit `worker/wrangler.toml` — set your project name, route/domain, and any R2 bindings.
 2. Build and deploy:
 
 ```bash
@@ -312,13 +382,49 @@ If your routes use secrets (API keys, etc.), set them first: `wrangler secret pu
 
 The `worker/worker.js` shim handles the fetch event and passes requests to the WASM binary.
 
+### Fastly Compute
+
+1. Edit `examples/site/fastly/fastly.toml` — set your service name and backend origins.
+2. Build and deploy:
+
+```bash
+zig build fastly        # compile to WASI WASM
+cd examples/site/fastly
+fastly compute deploy
+```
+
+The Fastly target compiles to `wasm32-wasi` and runs natively on Fastly's Compute platform — no JS shim needed. Static assets from `public/` are embedded directly into the WASM binary for zero-latency serving. Outbound HTTP requests (for SSR data fetching) are routed through Fastly backends configured in `fastly.toml`.
+
+To test locally with [Viceroy](https://github.com/fastly/Viceroy):
+
+```bash
+cd examples/site/fastly
+viceroy ./merjs.wasm -C fastly.toml
+# → http://127.0.0.1:7676
+```
+
+### Runtime selection (io_uring)
+
+`src/runtime.zig` exposes a single `runtime.io` instance and a `Backend` enum
+(`evented` / `threaded`). On startup, you'll see:
+
+```
+info(runtime): io backend: Threaded (blocking syscalls)
+```
+
+The fork retains **Threaded** on every platform until Evented HTTP serving is
+validated with official Zig 0.17.0. Upstream also disabled Evented on its
+0.17 development snapshot because listening and accepting were unimplemented.
+The backend-selection and init-time fallback code remains available, but a
+compiler-version bump alone does not enable it.
+
 ---
 
 ## How It Works
 
 ```
 zig build codegen
-  └── scans app/ + api/
+  └── scans examples/site/app/ + examples/site/api/ (app/ + api/ in scaffolded projects)
   └── writes src/generated/routes.zig  (static dispatch table)
 
 zig build serve
@@ -331,6 +437,11 @@ zig build serve
 zig build worker
   └── compiles to wasm32-freestanding
   └── worker/worker.js wraps WASM in a CF Workers fetch handler
+
+zig build fastly
+  └── compiles to wasm32-wasi
+  └── embeds public/ assets into the binary
+  └── runs natively on Fastly Compute (no JS shim)
 ```
 
 **Thread model:** `std.Thread.Pool` with CPU-count-based sizing, kernel backlog 512, 64 KB write buffers.
@@ -359,7 +470,8 @@ merjs/
 ├── examples/
 │   ├── desktop/            # native macOS app (experimental) — zig build desktop
 │   ├── kanban/             # Kanban board demo (merboard.merlionjs.com)
-│   └── singapore-data-dashboard/
+│   ├── singapore-data-dashboard/
+│   └── site/fastly/        # Fastly Compute deploy target — zig build fastly
 ├── tools/
 │   ├── codegen.zig
 │   └── tailwindcss         # Tailwind v4 standalone CLI (no npm)
@@ -416,7 +528,7 @@ Open an issue before submitting a large PR.
 - **[dhi](https://github.com/justrach/dhi)** — Pydantic-style validation for Zig
 - **[Tailwind CSS v4](https://tailwindcss.com)** — standalone CLI, no npm
 - **[kuri](https://github.com/justrach/kuri)** — E2E testing via headless Chrome
-- **Zig 0.15** — the whole stack
+- **Official Zig 0.17.0** — the whole stack
 
 ## License
 

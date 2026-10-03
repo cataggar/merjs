@@ -5,8 +5,9 @@ const h = mer.h;
 // mercss INTEGRATION DEMO - Real merjs page with compile-time CSS
 // ═══════════════════════════════════════════════════════════════════════════════
 
-// Access mercss through mer module
+// Access mercss + design tokens through mer module
 const mercss = mer.mercss;
+const design = mer.design;
 
 // Define component styles at compile time
 const Button = mercss.Component(.{
@@ -61,12 +62,74 @@ const ResponsiveBox = mercss.ResponsiveComponent(.{
     },
 });
 
+const TokenButton = mercss.Component(.{
+    .base = .{
+        .padding = design.space.base,
+        .background = design.primary.DEFAULT,
+        .color = "#ffffff",
+        .border_radius = design.radius.md,
+        .font_weight = design.font.weight.semibold,
+        .border = "none",
+        .cursor = "pointer",
+        .transition = design.transition.base,
+    },
+    .hover = .{
+        .background = design.primary.dark,
+    },
+    .active = .{
+        .background = design.primary.darker,
+    },
+    .focus = .{
+        .outline = "2px solid " ++ design.primary.light,
+    },
+});
+
+const DarkCard = mercss.Component(.{
+    .base = .{
+        .padding = design.space.xl,
+        .background = design.slate.c100,
+        .border_radius = design.radius.lg,
+        .color = design.slate.c800,
+    },
+    .dark = .{
+        .background = design.slate.c800,
+        .color = design.slate.c100,
+    },
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// HASHED ATOMIC CLASSES (#91.4) - short, content-addressed, deduplicated names
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Two components that share the same `background` atomic rule. With
+// HashedComponent the shared rule collapses onto one short `.mc-<hash>` class
+// name across both, instead of two long readable `.mcss-background` rules.
+const HashedPrimary = mercss.HashedComponent(.{
+    .background = "#3b82f6",
+    .color = "white",
+    .padding = "10px 20px",
+    .border_radius = "6px",
+    .border = "none",
+});
+
+const HashedGhost = mercss.HashedComponent(.{
+    .background = "#3b82f6",
+    .color = "white",
+    .padding = "10px 20px",
+    .border_radius = "999px",
+    .border = "none",
+});
+
 // Compile-time generated CSS - zero runtime cost!
 const page_css =
     Button.css ++
     Card.css ++
     Alert.css ++
     ResponsiveBox.css ++
+    TokenButton.css ++
+    DarkCard.css ++
+    HashedPrimary.css ++
+    HashedGhost.css ++
     "body{background:#f3f4f6;padding:40px;font-family:system-ui;}" ++
     ".container{max-width:800px;margin:0 auto;display:flex;flex-direction:column;gap:20px;}" ++
     "h1{margin:0 0 16px 0;color:#1f2937;}" ++
@@ -125,6 +188,28 @@ pub fn render(req: mer.Request) mer.Response {
                 "<strong>Responsive Box</strong><br>" ++
                 "Resize your browser to see me change!" ++
                 "</div>"),
+        }),
+
+        h.div(.{ .class = Card.classes }, .{
+            h.h1(.{}, "Design tokens + state variants"),
+            h.p(.{}, "Hover / focus / active styles and mer.design tokens, from yxlyx #92/#95."),
+            h.raw("<button class='" ++ TokenButton.classes ++ "'>Hover me</button>"),
+        }),
+
+        h.div(.{ .class = DarkCard.classes }, .{
+            h.h1(.{}, "Dark mode card"),
+            h.p(.{}, "This card flips colors under prefers-color-scheme: dark."),
+        }),
+
+        h.div(.{ .class = Card.classes }, .{
+            h.h1(.{}, "Hashed atomic classes (#91)"),
+            h.p(.{}, "HashedComponent derives short, content-addressed class names " ++
+                "from each property:value pair. Shared atomic rules collapse onto one " ++
+                "class across components (true atomic dedup), and names stay short."),
+            h.raw("<button class='" ++ HashedPrimary.classes ++ "'>Primary</button> " ++
+                "<button class='" ++ HashedGhost.classes ++ "'>Pill</button>"),
+            h.p(.{}, "Primary classes: " ++ HashedPrimary.classes),
+            h.p(.{}, "Pill classes:    " ++ HashedGhost.classes),
         }),
     });
 

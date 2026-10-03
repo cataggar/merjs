@@ -2,15 +2,17 @@ name: CI — merjs build & test
 
 on:
   push:
-    branches: [main, "feature/**", "feat/**"]
+    branches: [main, "feature/**", "feat/**", "release/**"]
   pull_request:
-    branches: [main]
+    branches: [main, "release/**"]
 
 jobs:
   build:
     runs-on: ${{ matrix.os }}
     name: Build & test (${{ matrix.os }})
     timeout-minutes: 15
+    env:
+      PYTHONUTF8: "1"
     strategy:
       fail-fast: false
       matrix:
@@ -53,8 +55,58 @@ jobs:
       - name: Build CLI
         run: zig build cli -Doptimize=safe
 
+      - name: Scaffold and runtime integration
+        run: python tests/integration.py --source "git+https://github.com/${{ github.repository }}.git#${{ github.event.pull_request.head.sha || github.sha }}"
+
+      - name: Standalone UI showcase
+        working-directory: examples/ui-showcase
+        run: zig build test install
+
+      - name: Deployment targets and static-asset cache
+        if: runner.os == 'Linux'
+        run: |
+          zig build wasm worker fastly sgdata-worker worker-example-kanban prod -Doptimize=safe
+          node tests/worker.mjs
+          python tests/integration.py --source "git+https://github.com/${{ github.repository }}.git#${{ github.event.pull_request.head.sha || github.sha }}" --assets
+
+      - name: Container smoke test
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          docker build -t merjs-ci .
+          container=$(docker run -d -p 127.0.0.1::3000 merjs-ci)
+          trap 'docker rm -f "$container" >/dev/null' EXIT
+          port=$(docker port "$container" 3000/tcp | cut -d: -f2)
+          curl --fail --retry 15 --retry-connrefused --retry-delay 1 "http://127.0.0.1:$port/_mer/health"
+
       - name: Verify binary
         shell: bash
         run: test -f zig-out/bin/merjs || test -f zig-out/bin/merjs.exe
 
       # Browser E2E tests remain disabled until kuri supports the current Zig.
+  native-macos:
+    runs-on: macos-latest
+    name: Build native macOS app
+
+    steps:
+      - name: Checkout merjs
+        uses: actions/checkout@v4
+
+      - name: Setup Zig 0.17.0
+        uses: cataggar/ghr/actions/install@v0.6.1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        with:
+          tools: |
+            cataggar/zig@v0.17.0 RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U
+
+      - name: Test framework
+        run: zig build test --summary all
+
+      - name: Build app bundle
+        run: zig build desktop -Doptimize=small
+
+      - name: Verify app bundle
+        run: |
+          test -x zig-out/MerApp.app/Contents/MacOS/merapp
+          plutil -lint zig-out/MerApp.app/Contents/Info.plist

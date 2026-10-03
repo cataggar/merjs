@@ -28,6 +28,20 @@ fn toKebabCase(comptime str: []const u8) []const u8 {
     }
 }
 
+/// Stringify a style value at comptime.
+///
+/// - enums use their tag name (design-token enums),
+/// - integers / floats become pixel values (`16` -> `16px`),
+/// - everything else (string literals) is passed through verbatim.
+fn styleValue(comptime value: anytype) []const u8 {
+    return switch (@typeInfo(@TypeOf(value))) {
+        .@"enum" => @tagName(value),
+        .int, .comptime_int => std.fmt.comptimePrint("{d}px", .{value}),
+        .float, .comptime_float => std.fmt.comptimePrint("{d}px", .{value}),
+        else => value,
+    };
+}
+
 /// Helper to generate CSS from style struct at comptime
 fn generateCss(comptime styles: anytype) []const u8 {
     comptime {
@@ -39,12 +53,7 @@ fn generateCss(comptime styles: anytype) []const u8 {
         switch (@typeInfo(T)) {
             .@"struct" => |info| {
                 for (info.field_names) |name| {
-                    const value = @field(styles, name);
-                    const value_str = switch (@typeInfo(@TypeOf(value))) {
-                        .@"enum" => @tagName(value),
-                        .int, .comptime_int => std.fmt.comptimePrint("{d}px", .{value}),
-                        else => value,
-                    };
+                    const value_str = styleValue(@field(styles, name));
 
                     // Convert property name to kebab-case for CSS
                     const css_property = toKebabCase(name);
@@ -69,8 +78,9 @@ fn getClassNames(comptime styles: anytype) []const u8 {
         const T = @TypeOf(styles);
         switch (@typeInfo(T)) {
             .@"struct" => |info| {
-                for (info.field_names) |name| {
-                    names = names ++ std.fmt.comptimePrint("mcss-{s} ", .{name});
+                for (info.field_names) |field_name| {
+                    const name = std.fmt.comptimePrint("mcss-{s} ", .{field_name});
+                    names = names ++ name;
                 }
             },
             else => {},
@@ -81,8 +91,35 @@ fn getClassNames(comptime styles: anytype) []const u8 {
     }
 }
 
-/// Create a component with compile-time CSS
+/// True when `config` uses the variant/responsive shape from yxlyx #92
+/// (`.base`, `.sm`, `.hover`, `.dark`, …) rather than a flat style struct.
+fn isVariantConfig(comptime config: anytype) bool {
+    const T = @TypeOf(config);
+    return @hasField(T, "base") or @hasField(T, "sm") or @hasField(T, "md") or
+        @hasField(T, "lg") or @hasField(T, "xl") or @hasField(T, "xl2") or
+        @hasField(T, "dark") or @hasField(T, "hover") or @hasField(T, "focus") or
+        @hasField(T, "active");
+}
+
+/// Create a component with compile-time CSS.
+///
+/// Flat styles (existing API):
+/// ```zig
+/// const Button = mercss.Component(.{ .padding = "8px", .color = "white" });
+/// ```
+///
+/// Variant config (yxlyx #92):
+/// ```zig
+/// const Button = mercss.Component(.{
+///     .base = .{ .padding = "8px" },
+///     .hover = .{ .background = "#2563eb" },
+///     .dark = .{ .background = "#1e293b" },
+/// });
+/// ```
 pub fn Component(comptime styles: anytype) type {
+    if (comptime isVariantConfig(styles)) {
+        return ResponsiveComponent(styles);
+    }
     return struct {
         pub const css = generateCss(styles);
         pub const classes = getClassNames(styles);
@@ -136,6 +173,55 @@ fn generateResponsiveCss(comptime config: anytype) []const u8 {
             css = css ++ "@media (min-width: 1280px){" ++ xl_css ++ "}";
         }
 
+        // Generate xl2 breakpoint (1536px+)
+        if (@hasField(@TypeOf(config), "xl2")) {
+            const xl2_css = generateBreakpointCss("xl2", config.xl2);
+            css = css ++ "@media (min-width: 1536px){" ++ xl2_css ++ "}";
+        }
+
+        // Dark mode via prefers-color-scheme (yxlyx #92)
+        if (@hasField(@TypeOf(config), "dark")) {
+            const dark_css = generateBreakpointCss("dark", config.dark);
+            if (dark_css.len > 0) {
+                css = css ++ "@media (prefers-color-scheme: dark){" ++ dark_css ++ "}";
+            }
+        }
+
+        // State variants — class is applied on the element, pseudo on the rule
+        if (@hasField(@TypeOf(config), "hover")) {
+            css = css ++ generateStateCss("hover", config.hover);
+        }
+        if (@hasField(@TypeOf(config), "focus")) {
+            css = css ++ generateStateCss("focus", config.focus);
+        }
+        if (@hasField(@TypeOf(config), "active")) {
+            css = css ++ generateStateCss("active", config.active);
+        }
+
+        return css;
+    }
+}
+
+/// Generate `.mcss-{state}-{prop}:{state}{prop:val;}` rules for hover/focus/active.
+fn generateStateCss(comptime state: []const u8, comptime styles: anytype) []const u8 {
+    comptime {
+        var css: []const u8 = "";
+
+        const T = @TypeOf(styles);
+        switch (@typeInfo(T)) {
+            .@"struct" => |info| {
+                for (info.field_names) |name| {
+                    const value_str = styleValue(@field(styles, name));
+                    const css_property = toKebabCase(name);
+                    const rule = std.fmt.comptimePrint(".mcss-{s}-{s}:{s}{{{s}:{s};}}", .{
+                        state, name, state, css_property, value_str,
+                    });
+                    css = css ++ rule;
+                }
+            },
+            else => {},
+        }
+
         return css;
     }
 }
@@ -149,12 +235,7 @@ fn generateBreakpointCss(comptime prefix: []const u8, comptime styles: anytype) 
         switch (@typeInfo(T)) {
             .@"struct" => |info| {
                 for (info.field_names) |name| {
-                    const value = @field(styles, name);
-                    const value_str = switch (@typeInfo(@TypeOf(value))) {
-                        .@"enum" => @tagName(value),
-                        .int, .comptime_int => std.fmt.comptimePrint("{d}px", .{value}),
-                        else => value,
-                    };
+                    const value_str = styleValue(@field(styles, name));
 
                     const css_property = toKebabCase(name);
 
@@ -205,6 +286,29 @@ fn getResponsiveClassNames(comptime config: anytype) []const u8 {
             names = names ++ xl_names ++ " ";
         }
 
+        // xl2 classes
+        if (@hasField(@TypeOf(config), "xl2")) {
+            const xl2_names = getBreakpointClassNames("xl2", config.xl2);
+            names = names ++ xl2_names ++ " ";
+        }
+
+        if (@hasField(@TypeOf(config), "dark")) {
+            const dark_names = getBreakpointClassNames("dark", config.dark);
+            names = names ++ dark_names ++ " ";
+        }
+        if (@hasField(@TypeOf(config), "hover")) {
+            const hover_names = getBreakpointClassNames("hover", config.hover);
+            names = names ++ hover_names ++ " ";
+        }
+        if (@hasField(@TypeOf(config), "focus")) {
+            const focus_names = getBreakpointClassNames("focus", config.focus);
+            names = names ++ focus_names ++ " ";
+        }
+        if (@hasField(@TypeOf(config), "active")) {
+            const active_names = getBreakpointClassNames("active", config.active);
+            names = names ++ active_names ++ " ";
+        }
+
         // Remove trailing space
         return if (names.len > 0) names[0 .. names.len - 1] else "";
     }
@@ -218,8 +322,9 @@ fn getBreakpointClassNames(comptime prefix: []const u8, comptime styles: anytype
         const T = @TypeOf(styles);
         switch (@typeInfo(T)) {
             .@"struct" => |info| {
-                for (info.field_names) |name| {
-                    names = names ++ std.fmt.comptimePrint("mcss-{s}-{s} ", .{ prefix, name });
+                for (info.field_names) |field_name| {
+                    const name = std.fmt.comptimePrint("mcss-{s}-{s} ", .{ prefix, field_name });
+                    names = names ++ name;
                 }
             },
             else => {},
@@ -244,6 +349,113 @@ pub fn ResponsiveComponent(comptime config: anytype) type {
     return struct {
         pub const css = generateResponsiveCss(config);
         pub const classes = getResponsiveClassNames(config);
+    };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// HASHED (CONTENT-ADDRESSED) ATOMIC CLASSES — shorter, deduplicated class names
+// ═══════════════════════════════════════════════════════════════════════════════
+//
+// The default `Component` emits readable `.mcss-<property>` class names. For pages
+// with many components those names get long and repeat the same atomic rule (e.g.
+// two components both setting `background:#3b82f6` each ship a `.mcss-background`
+// rule). `HashedComponent` instead derives a short, stable class name from the
+// *content* of each atomic rule (`property:value`). Identical property/value pairs
+// therefore collapse onto the same class name across components — true atomic CSS
+// deduplication — while class names stay short (e.g. `.mc-1a2b3c`).
+//
+// This is opt-in: existing pages keep the stable, human-readable `mcss-*` names.
+
+/// FNV-1a 32-bit hash of a byte string, evaluated at comptime.
+fn fnv1a(comptime s: []const u8) u32 {
+    comptime {
+        var h: u32 = 2166136261;
+        for (s) |c| {
+            h ^= c;
+            h *%= 16777619;
+        }
+        return h;
+    }
+}
+
+/// Encode an unsigned integer as lowercase base36 (`0-9a-z`) at comptime.
+fn base36(comptime n: u32) []const u8 {
+    comptime {
+        if (n == 0) return "0";
+        const digits = "0123456789abcdefghijklmnopqrstuvwxyz";
+        var buf: [7]u8 = undefined; // ceil(log36(2^32)) == 7
+        var i: usize = buf.len;
+        var v: u32 = n;
+        while (v > 0) {
+            i -= 1;
+            buf[i] = digits[v % 36];
+            v /= 36;
+        }
+        return buf[i..];
+    }
+}
+
+/// Content-addressed atomic class name for a `property:value` pair.
+/// The same pair always yields the same class, enabling cross-component dedup.
+fn atomicClass(comptime property: []const u8, comptime value: []const u8) []const u8 {
+    return "mc-" ++ base36(fnv1a(property ++ ":" ++ value));
+}
+
+/// Generate hashed atomic CSS from a flat style struct at comptime.
+fn generateHashedCss(comptime styles: anytype) []const u8 {
+    comptime {
+        var css: []const u8 = "";
+        switch (@typeInfo(@TypeOf(styles))) {
+            .@"struct" => |info| {
+                for (info.field_names) |name| {
+                    const value_str = styleValue(@field(styles, name));
+                    const property = toKebabCase(name);
+                    const cls = atomicClass(property, value_str);
+                    css = css ++ "." ++ cls ++ "{" ++ property ++ ":" ++ value_str ++ ";}";
+                }
+            },
+            else => {},
+        }
+        return css;
+    }
+}
+
+/// Collect hashed atomic class names from a flat style struct at comptime.
+fn getHashedClassNames(comptime styles: anytype) []const u8 {
+    comptime {
+        var names: []const u8 = "";
+        switch (@typeInfo(@TypeOf(styles))) {
+            .@"struct" => |info| {
+                for (info.field_names) |name| {
+                    const value_str = styleValue(@field(styles, name));
+                    const property = toKebabCase(name);
+                    names = names ++ atomicClass(property, value_str) ++ " ";
+                }
+            },
+            else => {},
+        }
+        return if (names.len > 0) names[0 .. names.len - 1] else "";
+    }
+}
+
+/// Create a component with short, content-addressed atomic class names.
+///
+/// Usage:
+/// ```zig
+/// const Button = mercss.HashedComponent(.{
+///     .background = "#3b82f6",
+///     .border_radius = "6px",
+/// });
+/// // Button.css     == ".mc-<hash>{background:#3b82f6;}.mc-<hash>{border-radius:6px;}"
+/// // Button.classes == "mc-<hash> mc-<hash>"
+/// ```
+///
+/// Class names are derived from `property:value`, so identical atomic rules
+/// across components share one class name (and one rule when de-duplicated).
+pub fn HashedComponent(comptime styles: anytype) type {
+    return struct {
+        pub const css = generateHashedCss(styles);
+        pub const classes = getHashedClassNames(styles);
     };
 }
 
@@ -445,4 +657,185 @@ pub fn exampleUsage() void {
     //     );
     // }
     _ = {};
+}
+
+/// Combine multiple components into one stylesheet (yxlyx #92).
+pub fn generateStylesheet(comptime components: anytype) []const u8 {
+    comptime {
+        var result: []const u8 = "/* mercss generated stylesheet */\n";
+        const T = @TypeOf(components);
+        switch (@typeInfo(T)) {
+            .@"struct" => |info| {
+                for (info.field_names) |name| {
+                    const comp = @field(components, name);
+                    result = result ++ "/* " ++ name ++ " */\n" ++ comp.css ++ "\n";
+                }
+            },
+            else => {},
+        }
+        return result;
+    }
+}
+
+/// Collect class names from multiple components (yxlyx #92).
+pub fn getAllClasses(comptime components: anytype) []const u8 {
+    comptime {
+        var result: []const u8 = "";
+        const T = @TypeOf(components);
+        switch (@typeInfo(T)) {
+            .@"struct" => |info| {
+                for (info.field_names) |name| {
+                    const comp = @field(components, name);
+                    if (comp.classes.len > 0) {
+                        result = result ++ comp.classes ++ " ";
+                    }
+                }
+            },
+            else => {},
+        }
+        return if (result.len > 0) result[0 .. result.len - 1] else "";
+    }
+}
+
+test "Component variant config: hover and dark" {
+    comptime {
+        @setEvalBranchQuota(8000);
+        const Interactive = Component(.{
+            .base = .{ .background = "#3b82f6" },
+            .hover = .{ .background = "#2563eb" },
+            .dark = .{ .background = "#1e293b", .color = "white" },
+        });
+        try testing.expect(std.mem.indexOf(u8, Interactive.css, ":hover") != null);
+        try testing.expect(std.mem.indexOf(u8, Interactive.css, "prefers-color-scheme: dark") != null);
+        try testing.expect(std.mem.indexOf(u8, Interactive.classes, "mcss-hover-background") != null);
+        try testing.expect(std.mem.indexOf(u8, Interactive.classes, "mcss-dark-background") != null);
+    }
+}
+
+test "Responsive component xl2 breakpoint" {
+    comptime {
+        @setEvalBranchQuota(8000);
+        const Wide = ResponsiveComponent(.{
+            .base = .{ .padding = "8px" },
+            .xl2 = .{ .padding = "64px" },
+        });
+        try testing.expect(std.mem.indexOf(u8, Wide.css, "1536px") != null);
+        try testing.expect(std.mem.indexOf(u8, Wide.classes, "mcss-xl2-padding") != null);
+    }
+}
+
+test "generateStylesheet and getAllClasses" {
+    comptime {
+        const sheet = generateStylesheet(.{
+            .button = Button,
+            .card = Card,
+        });
+        try testing.expect(std.mem.indexOf(u8, sheet, "/* button */") != null);
+        try testing.expect(std.mem.indexOf(u8, sheet, "/* card */") != null);
+        const classes = getAllClasses(.{ .button = Button, .card = Card });
+        try testing.expect(classes.len > 0);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TAILWIND-PARITY OUTPUT TESTS (#91) — assert exact generated CSS strings
+// ═══════════════════════════════════════════════════════════════════════════════
+
+test "#91.1 property-name mapping: snake_case field -> kebab-case CSS property" {
+    comptime {
+        // `border_radius` field must render as the `border-radius` CSS property,
+        // exactly, in the generated rule.
+        const Boxy = Component(.{ .border_radius = "6px", .background_color = "#fff" });
+        try testing.expectEqualStrings(
+            ".mcss-border_radius{border-radius:6px;}.mcss-background_color{background-color:#fff;}",
+            Boxy.css,
+        );
+    }
+}
+
+test "#91.1 integer/float values become pixels via kebab property" {
+    comptime {
+        const Spaced = Component(.{ .margin_top = 12, .line_height = 1.5 });
+        try testing.expect(std.mem.indexOf(u8, Spaced.css, "margin-top:12px;") != null);
+        try testing.expect(std.mem.indexOf(u8, Spaced.css, "line-height:1.5px;") != null);
+    }
+}
+
+test "#91.2 responsive prefix -> @media (min-width) block with kebab property" {
+    comptime {
+        @setEvalBranchQuota(8000);
+        const Box = ResponsiveComponent(.{
+            .base = .{ .padding = "8px" },
+            .md = .{ .font_size = "18px" },
+        });
+        // base rule lives outside any media query
+        try testing.expect(std.mem.indexOf(u8, Box.css, ".mcss-padding{padding:8px;}") != null);
+        // md variant is wrapped in a min-width media query and uses kebab property
+        try testing.expect(std.mem.indexOf(
+            u8,
+            Box.css,
+            "@media (min-width: 768px){.mcss-md-font_size{font-size:18px;}}",
+        ) != null);
+    }
+}
+
+test "#91.3 state variant -> .cls:hover / :focus / :active selectors" {
+    comptime {
+        @setEvalBranchQuota(8000);
+        const Btn = Component(.{
+            .base = .{ .background = "#3b82f6" },
+            .hover = .{ .background_color = "#2563eb" },
+            .focus = .{ .outline = "2px solid #93c5fd" },
+            .active = .{ .background = "#1d4ed8" },
+        });
+        try testing.expect(std.mem.indexOf(
+            u8,
+            Btn.css,
+            ".mcss-hover-background_color:hover{background-color:#2563eb;}",
+        ) != null);
+        try testing.expect(std.mem.indexOf(u8, Btn.css, ".mcss-focus-outline:focus{") != null);
+        try testing.expect(std.mem.indexOf(u8, Btn.css, ".mcss-active-background:active{") != null);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// HASHED CLASS-NAME TESTS (#91.4)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+test "#91.4 hashed component emits short mc- classes with kebab properties" {
+    comptime {
+        const Btn = HashedComponent(.{ .background = "#3b82f6", .border_radius = "6px" });
+        // Short, content-addressed class prefix
+        try testing.expect(std.mem.indexOf(u8, Btn.classes, "mc-") != null);
+        try testing.expect(std.mem.indexOf(u8, Btn.classes, "mcss-") == null);
+        // Rules still use kebab-case CSS properties
+        try testing.expect(std.mem.indexOf(u8, Btn.css, "border-radius:6px;") != null);
+        try testing.expect(std.mem.indexOf(u8, Btn.css, "background:#3b82f6;") != null);
+        // Hashed names are shorter than the readable equivalent for multi-word props
+        try testing.expect(std.mem.indexOf(u8, Btn.classes, "mc-").? == 0);
+    }
+}
+
+test "#91.4 identical property:value pairs collapse onto one hashed class" {
+    comptime {
+        // Same atomic rule in two different components -> same class name (dedup).
+        const A = HashedComponent(.{ .background = "#3b82f6", .padding = "8px" });
+        const B = HashedComponent(.{ .background = "#3b82f6", .color = "white" });
+        const a_bg = atomicClass("background", "#3b82f6");
+        try testing.expect(std.mem.indexOf(u8, A.classes, a_bg) != null);
+        try testing.expect(std.mem.indexOf(u8, B.classes, a_bg) != null);
+        // Different value -> different class
+        const other = atomicClass("background", "#ef4444");
+        try testing.expect(!std.mem.eql(u8, a_bg, other));
+    }
+}
+
+test "#91.4 base36 / fnv1a hashing sanity" {
+    comptime {
+        try testing.expectEqualStrings("0", base36(0));
+        try testing.expectEqualStrings("z", base36(35));
+        try testing.expectEqualStrings("10", base36(36));
+        // Deterministic and collision-stable for the two sample inputs
+        try testing.expect(fnv1a("background:#3b82f6") != fnv1a("background:#ef4444"));
+    }
 }

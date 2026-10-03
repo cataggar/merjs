@@ -18,9 +18,12 @@ jobs:
           fetch-depth: 0
 
       - name: Setup Zig 0.17.0
-        uses: mlugg/setup-zig@v2
+        uses: cataggar/ghr/actions/install@v0.6.1
+        env:
+          GH_TOKEN: ${{ github.token }}
         with:
-          version: 0.17.0
+          tools: |
+            cataggar/zig@v0.17.0 RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U
 
       - name: Build check
         run: |
@@ -49,7 +52,7 @@ jobs:
       - name: Generate version tag
         id: version
         run: |
-          VERSION=$(grep 'pub const version' src/mer.zig | grep -o '"[^"]*"' | tr -d '"')
+          VERSION=$(awk -F'"' '/^[[:space:]]*\.version =/ { print $2; exit }' build.zig.zon)
           SHORT_SHA=$(git rev-parse --short HEAD)
           BETA_TAG="v${VERSION}-beta.${SHORT_SHA}"
           echo "tag=${BETA_TAG}" >> "$GITHUB_OUTPUT"

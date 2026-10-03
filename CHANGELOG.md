@@ -4,15 +4,32 @@ All notable changes to merjs will be documented in this file.
 
 Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.54] — 2026-08-26
+
+Release branch stacking remaining open work onto current `main` (Zig 0.17.0-dev). Dirty PRs were not merged as-is.
+
+### Added
+- **`mer.design`** — Tailwind-inspired design tokens from yxlyx #92/#95 (spacing, typography, 17 color scales × 11 shades, shadows, transitions, semantic aliases).
+- **mercss variants** — `hover` / `focus` / `active` state rules, `dark` via `prefers-color-scheme`, `xl2` breakpoint, `generateStylesheet` / `getAllClasses`. Flat `Component(.{...})` API is unchanged.
+- **`mer.native.runLoopback`** — compile-safe public API from pranavp311 #107. Validation tests run on Linux. The WKWebView host is macOS-only and still needs a Mac to runtime-verify.
+
+### Changed
+- Desktop example uses `mer.native`, current `ServerReady` wait/set, and Zig 0.17 `runtime.init(alloc, environ)`.
+- CI runs on `release/**` branches and adds a macOS desktop job (does not gate tagged releases).
+
+---
+
 ## [0.2.1] — 2026-03-28
 
 ### Added
 - **turboapi-core dependency** — merjs now imports [turboapi-core](https://github.com/justrach/turboAPI/tree/main/turboapi-core), a shared Zig library providing a radix trie router, HTTP utilities (`percentDecode`, `queryStringGet`, `statusText`, `formatHttpDate`), and a bounded response cache. This is the first step toward sharing routing primitives between merjs and turboAPI. See [#66](https://github.com/justrach/merjs/issues/66) for the full integration roadmap.
 
+### Changed
+- **Shared query-string parser (#66)** — `Request.queryParam` now delegates to turboapi-core's fuzz-tested `queryStringGet` via a narrow `turboapi-http` module (rooted at the dependency's `http.zig`). Public API is unchanged.
+
 ### Next (tracked in #66)
-- Method-based API routing via turboapi-core's radix trie (GET vs POST on same path)
-- Replace `queryParamFromStr` with turboapi-core's `queryStringGet`
-- Optional: radix trie for dynamic page routes (perf upgrade for large route counts)
+- Method-based API routing via turboapi-core's radix trie (GET vs POST on same path) — blocked: the pinned Zig (`0.17.0-dev.1862`) rejects a literal in turboapi-core's `router.zig` fuzz corpus (`"a/" ** 70`), so the router module cannot be imported yet.
+- Optional: radix trie for dynamic page routes (perf upgrade for large route counts) — same router-import blocker.
 
 ## [0.2.5] — 2026-04-17
 
@@ -30,6 +47,9 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This p
 ---
 
 ## [Unreleased]
+### Changed
+- **Zig 0.17.0-dev** — toolchain pin moves from 0.16.0 to master snapshot `0.17.0-dev.1862+40ebd8162`. Build files use the new `std.builtin.Optimize` tags (`.debug` / `.small` / `.fast` / `.safe`) and `Run.addPassthruArgs()` instead of `b.args`. `@typeInfo` struct reflection uses `field_names` / `field_types`. Bumps dhi to the 0.17 reflection migration (`89d46d6`). Linux Evented stays gated: the 0.16 Uring compile bug is fixed, but `netListenIp` / `netAccept` are still stubs that return `error.NetworkDown`.
+
 ### Added
 - **Shell-first HTML rendering** — layout splits into head (CSS, meta, nav) and tail (footer, closing tags). The server flushes the head chunk immediately via chunked transfer encoding before the page's `render()` runs. This is NOT true streaming SSR (render still blocks) — it's early shell flushing so the browser can start painting the layout while waiting for page content.
 - **`mer.fetchAll()`** — parallel HTTP fetching. Spawns a thread per request, joins all. Cuts total latency to the slowest single fetch instead of the sum.

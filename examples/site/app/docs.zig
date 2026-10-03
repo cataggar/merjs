@@ -317,7 +317,7 @@ pub fn renderStream(req: mer.Request, stream: *mer.StreamWriter) void {
         \\    <div class="code-block"><button class="copy-btn" onclick="copyCode(this)">copy</button><pre><code>mer init my-app        # scaffold a new project
         \\mer dev                # codegen + dev server with hot reload
         \\mer dev --port 8080    # custom port
-        \\mer build              # production build (ReleaseSmall + prerender)
+        \\mer build              # production build (small + prerender)
         \\mer --version          # print version
         \\
         \\# Or use zig build directly:
@@ -334,7 +334,7 @@ pub fn renderStream(req: mer.Request, stream: *mer.StreamWriter) void {
         \\  <section id="deploy">
         \\    <h2>12. Deployment</h2>
         \\    <h3>Native binary</h3>
-        \\    <div class="code-block"><button class="copy-btn" onclick="copyCode(this)">copy</button><pre><code>zig build -Doptimize=ReleaseSmall
+        \\    <div class="code-block"><button class="copy-btn" onclick="copyCode(this)">copy</button><pre><code>zig build -Doptimize=small
         \\./zig-out/bin/merjs                  # single static binary
         \\# Runs on port 3000 by default</code></pre></div>
         \\    <h3>Cloudflare Workers</h3>

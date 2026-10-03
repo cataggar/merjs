@@ -2,11 +2,11 @@
     .name = .ui_showcase,
     .fingerprint = 0x1571bdf9507f6848,
     .version = "0.1.0",
-    .minimum_zig_version = "0.15.1",
+    .minimum_zig_version = "0.17.0",
     .dependencies = .{
         .merjs = .{
-            .url = "git+https://github.com/justrach/merjs.git#1584fa898d5fd20e76062b71288a4f2159c5bed5",
-            .hash = "merjs-0.2.2-qL9LkrAIXwCQ5D_GLWhsplFYDR2xYZ4bJVhY3g6QF4ou",
+            .url = "git+https://github.com/cataggar/merjs.git#b9a39cabae1a8c3c38ea3dc0b8b431ef48974932",
+            .hash = "merjs-0.2.54-qL9LkpbVYgCwqfh3sbryxpv9ZrRNpugXb75hrqHleokf",
         },
     },
     .paths = .{
@@ -14,6 +14,7 @@
         "build.zig.zon",
         "src",
         "app",
+        "components",
         "api",
         "public",
     },

@@ -3,10 +3,10 @@
 
 const std = @import("std");
 const mer = @import("mer");
-const Router = @import("router.zig").Router;
-const dispatch_mod = @import("dispatch.zig");
-const index_page = @import("examples/kanban/app/index");
-const layout_mod = @import("examples/kanban/app/layout");
+const Router = mer.Router;
+const dispatch_mod = mer.dispatch;
+const index_page = @import("app/index");
+const layout_mod = @import("app/layout");
 
 var router: ?Router = null;
 const allocator = std.heap.wasm_allocator;
@@ -76,7 +76,7 @@ export fn handle(req_ptr: [*]const u8, req_len: u32) ?[*]const u8 {
     const total = 4 + ct_str.len + response.body.len;
     const buf = allocator.alloc(u8, total) catch return null;
 
-    const status_int: u16 = @intFromEnum(response.status);
+    const status_int: u16 = @backingInt(response.status);
     const ct_len: u16 = @intCast(ct_str.len);
     std.mem.writeInt(u16, buf[0..2], status_int, .little);
     std.mem.writeInt(u16, buf[2..4], ct_len, .little);

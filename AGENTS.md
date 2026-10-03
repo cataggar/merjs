@@ -5,6 +5,8 @@
 merjs is a Next.js-style web framework written in Zig. Zero Node.js.
 File-based routing, SSR, type-safe APIs, WASM client logic, Cloudflare Workers deploy.
 
+**Zig pin:** official `0.17.0` (`build.zig.zon` `minimum_zig_version`). Download from https://ziglang.org/download/.
+
 ## Project structure
 
 ```
@@ -40,7 +42,7 @@ build.zig         Top-level build — delegates to build/
 
 ```bash
 # Build & run the demo site
-zig build codegen       # scan app/ + api/, generate route table
+zig build codegen       # scan examples/site/{app,api}, generate demo route table
 zig build serve         # dev server on :3000 with hot reload
 
 # With verbose request logging
@@ -70,6 +72,17 @@ zig build prod
 - `http://localhost:3000/_mer/debug?format=json` — same as above, machine-readable JSON
 - `http://localhost:3000/_mer/events` — SSE hot reload stream
 
+### Production endpoints (always available)
+
+- `GET /_mer/health` — liveness probe, returns `{"status":"ok",...}` JSON
+- `GET /_mer/ready` — readiness probe, same payload (separate path for k8s)
+
+### Environment variables for deployment
+
+- `PORT` — listening port (PaaS standard: Fly, Render, Railway, Heroku, Cloud Run inject this)
+- `HOST` — bind interface; defaults to `0.0.0.0` in `--no-dev`, `127.0.0.1` in dev
+- `MERJS_DEV=0` — disable hot reload (equivalent to `--no-dev`)
+
 ### Verbose mode
 
 Run with `--verbose` to log every request with timing:
@@ -94,7 +107,7 @@ In production (`--no-dev`), errors log to stderr and return a clean 500.
 | Symptom | Fix |
 |---------|-----|
 | `zig build` fails with "missing fingerprint" | Run `zig build` once, copy the suggested value into `build.zig.zon` |
-| `codegen: wrote 0 routes` | Make sure `app/` and `api/` dirs exist with `.zig` files. **On Windows**, this repo's root `app`/`api`/`public` are git symlinks into `examples/site/` — see the symlink row below; if they're broken you'll also see this. |
+| `codegen: wrote 0 routes` | Consumer projects need `.zig` files in `app/` or `api/`. This repo's demo codegen scans `examples/site/{app,api}` directly and does not depend on root symlinks. |
 | Port 3000 in use | `zig build serve -- --port 8080` |
 | Server unreachable in Docker | Use `--host 0.0.0.0` |
 | CSS not working | Run `zig build css` (auto-downloads Tailwind CLI) or `mer add css` |
