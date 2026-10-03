@@ -53,5 +53,4 @@ jobs:
         shell: bash
         run: test -f zig-out/bin/merjs || test -f zig-out/bin/merjs.exe
 
-      # TODO: re-enable E2E tests once kuri is updated for Zig 0.16
-      # For now, just verify the build succeeds.
+      # Browser E2E tests remain disabled until kuri supports the current Zig.

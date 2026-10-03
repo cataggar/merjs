@@ -201,7 +201,7 @@ const build_zig_template =
     \\}
     \\
     \\fn addDirModules(b: *std.Build, mod: *std.Build.Module, mer_mod: *std.Build.Module, dir: []const u8) void {
-    \\    b.dependOnDirectoryContents(b.path(dir));
+    \\    b.dependOnDirectoryContents(b.path("."));
     \\    const layout_path = b.fmt("{s}/layout.zig", .{dir});
     \\    const layout_mod: ?*std.Build.Module = blk: {
     \\        b.root.access(b.graph.io, layout_path, .{}) catch break :blk null;
@@ -212,6 +212,7 @@ const build_zig_template =
     \\    };
     \\    var d = b.root.openDir(b.graph.io, dir, .{ .iterate = true }) catch return;
     \\    defer d.close(b.graph.io);
+    \\    b.dependOnDirectoryContents(b.path(dir));
     \\    var walker = d.walk(b.allocator) catch return;
     \\    defer walker.deinit();
     \\    while (walker.next(b.graph.io) catch null) |entry| {

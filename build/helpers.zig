@@ -13,7 +13,8 @@ pub fn addDirModules(
     import_prefix: []const u8,
     extra_imports: []const struct { []const u8, *std.Build.Module },
 ) void {
-    b.dependOnDirectoryContents(b.path(dir));
+    // The parent also tracks an optional route directory's presence.
+    b.dependOnDirectoryContents(b.path(std.Io.Dir.path.dirname(dir) orelse "."));
     const layout_path = b.fmt("{s}/layout.zig", .{dir});
     const layout_mod: ?*std.Build.Module = blk: {
         b.root.access(b.graph.io, layout_path, .{}) catch break :blk null;
@@ -27,6 +28,7 @@ pub fn addDirModules(
 
     var d = b.root.openDir(b.graph.io, dir, .{ .iterate = true }) catch return;
     defer d.close(b.graph.io);
+    b.dependOnDirectoryContents(b.path(dir));
     var walker = d.walk(b.allocator) catch return;
     defer walker.deinit();
     while (walker.next(b.graph.io) catch null) |entry| {

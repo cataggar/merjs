@@ -203,7 +203,7 @@ Download the [standalone Tailwind v4 CLI](https://github.com/tailwindlabs/tailwi
 ```
 mer init <name>      scaffold a new project (131 KB binary, all templates embedded)
 mer dev [--port N]   codegen + dev server with hot reload
-mer build            production build (ReleaseSmall + prerender)
+mer build            production build (small + prerender)
 mer add <feature>    add optional features (css, wasm, worker)
 mer update           update merjs dependency to latest
 mer --version        print version
@@ -214,13 +214,13 @@ Download from [releases](https://github.com/justrach/merjs/releases/latest) — 
 Or build from source:
 
 ```bash
-zig build cli -Doptimize=ReleaseSmall   # → zig-out/bin/mer
+zig build cli -Doptimize=small   # → zig-out/bin/mer
 ```
 
 Quick install from source checkout:
 
 ```bash
-zig build cli -Doptimize=ReleaseSmall
+zig build cli -Doptimize=small
 install -m 755 zig-out/bin/mer /usr/local/bin/mer
 ```
 
@@ -255,7 +255,7 @@ Server runs in terminal. Press `Ctrl+C` to stop.
 **2. Run in background with `nohup` (keeps running):**
 ```bash
 # Build first
-zig build -Doptimize=ReleaseFast
+zig build -Doptimize=fast
 
 # Run with nohup (won't stop when terminal closes)
 nohup ./zig-out/bin/merjs --port 3000 --no-dev > merjs.log 2>&1 &
@@ -284,7 +284,7 @@ ls -la zig-out/bin/merjs
 
 # Clean build
 rm -rf .zig-cache zig-out
-zig build -Doptimize=ReleaseFast
+zig build -Doptimize=fast
 ```
 
 ---
