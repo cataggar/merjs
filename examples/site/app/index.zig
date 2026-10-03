@@ -56,9 +56,9 @@ fn page() h.Node {
             }),
             benchRow("Cold Start", "8%", "< 5 ms", "80%", "~1-3 s"),
             benchRow("Throughput", "95%", "115,093 req/s", "8%", "2,060 req/s"),
-            benchRow("Avg Latency", "90%", "40.87 ms", "75%", "34.51 ms"),
+            benchRow("Avg Latency", "52%", "40.93 ms", "90%", "70.18 ms"),
             benchRow("Binary Size", "8%", "260 KB", "85%", "~300 MB node_modules"),
-            benchRow("Build Time", "90%", "~68.7 s", "37%", "~28 s"),
+            benchRow("Build Time", "90%", "~108.9 s", "29%", "~36 s"),
             h.p(.{ .class = "bench-note" }, .{
                 h.text("Throughput and latency measured locally on Apple M-series with "),
                 h.code(.{}, "wrk -t4 -c50"),
