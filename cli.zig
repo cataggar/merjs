@@ -49,7 +49,7 @@ fn currentMs() i64 {
 }
 
 pub fn main(init: std.process.Init.Minimal) !void {
-    var gpa: std.heap.DebugAllocator(.{}) = .init;
+    var gpa: std.heap.SafeAllocator = .init(std.heap.page_allocator, .{});
     defer _ = gpa.deinit();
     const alloc = gpa.allocator();
 
@@ -143,7 +143,7 @@ const build_zig_template =
     \\        .root_source_file = b.path("src/main.zig"),
     \\        .target = target,
     \\        .optimize = optimize,
-    \\        .strip = if (optimize != .Debug) true else null,
+    \\        .strip = if (optimize != .debug) true else null,
     \\    });
     \\    main_mod.addImport("mer", mer_mod);
     \\    addDirModules(b, main_mod, mer_mod, "app");
@@ -159,7 +159,7 @@ const build_zig_template =
     \\        .root_module = b.createModule(.{
     \\            .root_source_file = b.path("tools/codegen.zig"),
     \\            .target = b.graph.host,
-    \\            .optimize = .Debug,
+    \\            .optimize = .debug,
     \\        }),
     \\    });
     \\    const run_codegen = b.addRunArtifact(codegen_exe);
@@ -172,7 +172,7 @@ const build_zig_template =
     \\    // zig build serve
     \\    const run_exe = b.addRunArtifact(exe);
     \\    run_exe.step.dependOn(b.getInstallStep());
-    \\    if (b.args) |args| run_exe.addArgs(args);
+    \\    run_exe.addPassthruArgs();
     \\    b.step("serve", "Start the dev server").dependOn(&run_exe.step);
     \\
     \\    // zig build test
@@ -201,19 +201,25 @@ const build_zig_template =
     \\}
     \\
     \\fn addDirModules(b: *std.Build, mod: *std.Build.Module, mer_mod: *std.Build.Module, dir: []const u8) void {
+    \\    b.dependOnDirectoryContents(b.path("."));
     \\    const layout_path = b.fmt("{s}/layout.zig", .{dir});
     \\    const layout_mod: ?*std.Build.Module = blk: {
-    \\    std.Io.Dir.cwd().access(b.graph.io, layout_path, .{}) catch break :blk null;
+    \\        b.root.access(b.graph.io, layout_path, .{}) catch break :blk null;
     \\        const m = b.createModule(.{ .root_source_file = b.path(layout_path) });
     \\        m.addImport("mer", mer_mod);
     \\        mod.addImport(b.fmt("{s}/layout", .{dir}), m);
     \\        break :blk m;
     \\    };
-    \\    var d = std.Io.Dir.cwd().openDir(b.graph.io, dir, .{ .iterate = true }) catch return;
+    \\    var d = b.root.openDir(b.graph.io, dir, .{ .iterate = true }) catch return;
     \\    defer d.close(b.graph.io);
+    \\    b.dependOnDirectoryContents(b.path(dir));
     \\    var walker = d.walk(b.allocator) catch return;
     \\    defer walker.deinit();
     \\    while (walker.next(b.graph.io) catch null) |entry| {
+    \\        if (entry.kind == .directory) {
+    \\            b.dependOnDirectoryContents(b.path(b.fmt("{s}/{s}", .{ dir, entry.path })));
+    \\            continue;
+    \\        }
     \\        if (entry.kind != .file) continue;
     \\        if (!std.mem.endsWith(u8, entry.path, ".zig")) continue;
     \\        if (std.mem.eql(u8, entry.path, "layout.zig")) continue;
@@ -241,7 +247,7 @@ const main_zig_template =
     \\const log = std.log.scoped(.main);
     \\
     \\pub fn main(init: std.process.Init.Minimal) !void {
-    \\    var gpa: std.heap.DebugAllocator(.{}) = .init;
+    \\    var gpa: std.heap.SafeAllocator = .init(std.heap.page_allocator, .{});
     \\    defer _ = gpa.deinit();
     \\    const alloc = gpa.allocator();
     \\
@@ -380,7 +386,7 @@ fn writeBuildZigZon(dir: std.Io.Dir, alloc: std.mem.Allocator, name: []const u8)
     try file.writeStreamingAll(runtime.io, ".{\n    .name = .");
     try file.writeStreamingAll(runtime.io, zig_name);
     try file.writeStreamingAll(runtime.io, ",\n    .version = \"0.1.0\",\n");
-    try file.writeStreamingAll(runtime.io, "    .minimum_zig_version = \"0.16.0\",\n");
+    try file.writeStreamingAll(runtime.io, "    .minimum_zig_version = \"0.17.0\",\n");
     try file.writeStreamingAll(runtime.io, "    .dependencies = .{\n");
     try file.writeStreamingAll(runtime.io, "        .merjs = .{\n");
     try file.writeStreamingAll(runtime.io, "            .url = \"git+https://github.com/justrach/merjs.git\",\n");
@@ -720,7 +726,7 @@ fn cmdBuild(_: std.mem.Allocator) !void {
 
     print("mer: production build...\n", .{});
     var child = try std.process.spawn(runtime.io, .{
-        .argv = &.{ "zig", "build", "-Doptimize=ReleaseSmall", "prod" },
+        .argv = &.{ "zig", "build", "-Doptimize=small", "prod" },
         .stdout = .inherit,
         .stderr = .inherit,
     });
@@ -965,7 +971,7 @@ fn printUsage() void {
     print("\n  usage:\n", .{});
     print("    mer init <name>      scaffold a new project\n", .{});
     print("    mer dev [--port N]   codegen + dev server with hot reload\n", .{});
-    print("    mer build            production build (ReleaseSmall + prerender)\n", .{});
+    print("    mer build            production build (small + prerender)\n", .{});
     print("    mer add <feature>    add optional features (css, wasm, worker, ui [component])\n", .{});
     print("    mer update           update merjs to latest version\n", .{});
     print("    mer --version        print version\n", .{});

@@ -8,25 +8,53 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-    name: Build & test
+    runs-on: ${{ matrix.os }}
+    name: Build & test (${{ matrix.os }})
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
       - name: Checkout merjs
         uses: actions/checkout@v4
 
-      - name: Setup Zig 0.16.0
-        uses: mlugg/setup-zig@v2
+      - name: Enable Windows demo directories
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Remove-Item app,api,public -Force
+          New-Item -ItemType Junction -Path app -Target "$PWD\examples\site\app"
+          New-Item -ItemType Junction -Path api -Target "$PWD\examples\site\api"
+          New-Item -ItemType Junction -Path public -Target "$PWD\examples\site\public"
+
+      - name: Setup Zig 0.17.0
+        uses: cataggar/ghr/actions/install@v0.6.1
+        env:
+          GH_TOKEN: ${{ github.token }}
         with:
-          version: 0.16.0
+          tools: |
+            cataggar/zig@v0.17.0 RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U
 
       - name: Build merjs
         run: |
           zig build codegen
           zig build
 
-      - name: Verify binary
-        run: test -f zig-out/bin/merjs
+      - name: Unit tests
+        run: zig build test
 
-      # TODO: re-enable E2E tests once kuri is updated for Zig 0.16
-      # For now, just verify the build succeeds.
+      - name: Reflection and codegen tests
+        run: |
+          zig test src/mercss.zig
+          zig test --dep runtime "-Mroot=tools/codegen.zig" "-Mruntime=src/runtime.zig"
+
+      - name: Build CLI
+        run: zig build cli -Doptimize=safe
+
+      - name: Verify binary
+        shell: bash
+        run: test -f zig-out/bin/merjs || test -f zig-out/bin/merjs.exe
+
+      # Browser E2E tests remain disabled until kuri supports the current Zig.

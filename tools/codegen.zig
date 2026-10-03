@@ -5,7 +5,7 @@ const std = @import("std");
 const runtime = @import("runtime");
 
 pub fn main() !void {
-    var gpa: std.heap.DebugAllocator(.{}) = .init;
+    var gpa: std.heap.SafeAllocator = .init(std.heap.page_allocator, .{});
     defer _ = gpa.deinit();
     const alloc = gpa.allocator();
 
@@ -188,7 +188,7 @@ fn toUrl(alloc: std.mem.Allocator, path: []const u8) ![]u8 {
             out += 1;
         }
     }
-    result = result[0..out];
+    result = try alloc.realloc(result, out);
 
     // Strip trailing "/index" → parent path.
     const index_suffix = "/index";
@@ -221,4 +221,10 @@ fn hasDynamicSegment(path: []const u8) bool {
         }
     }
     return false;
+}
+
+test "dynamic URL allocation retains the correct size" {
+    const url = try toUrl(std.testing.allocator, "app/users/[id]/index.zig");
+    defer std.testing.allocator.free(url);
+    try std.testing.expectEqualStrings("/users/:id", url);
 }
