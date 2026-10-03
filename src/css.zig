@@ -26,8 +26,8 @@ const std = @import("std");
 pub fn style(comptime props: anytype) []const u8 {
     comptime {
         var result: []const u8 = "";
-        const fields = @typeInfo(@TypeOf(props)).@"struct".field_names;
-        for (fields) |name| {
+        const names = @typeInfo(@TypeOf(props)).@"struct".field_names;
+        for (names) |name| {
             const value = @field(props, name);
             if (result.len > 0) result = result ++ ";";
             result = result ++ snakeToCssProperty(name) ++ ":" ++ value;
@@ -43,8 +43,8 @@ pub fn style(comptime props: anytype) []const u8 {
 pub fn cx(comptime classes: anytype) []const u8 {
     comptime {
         var result: []const u8 = "";
-        const fields = @typeInfo(@TypeOf(classes)).@"struct".field_names;
-        for (fields) |name| {
+        const names = @typeInfo(@TypeOf(classes)).@"struct".field_names;
+        for (names) |name| {
             const val = @field(classes, name);
             const T = @TypeOf(val);
             if (T == @TypeOf(null)) continue;

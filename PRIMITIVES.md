@@ -221,7 +221,7 @@ Comptime HTML structural validator. Use `mer.lint.check(node)`.
 ```
 mer init <name>      Scaffold a new project
 mer dev [--port N]   Codegen + dev server with hot reload
-mer build            Production build (ReleaseSmall + prerender)
+mer build            Production build (small + prerender)
 mer --version        Print version
 ```
 
@@ -229,6 +229,6 @@ mer --version        Print version
 
 ## Deployment
 
-- **Native**: `zig build -Doptimize=ReleaseSmall` → single static binary
+- **Native**: `zig build -Doptimize=small` → single static binary
 - **Workers**: `zig build worker` → WASM + `wrangler deploy`
 - **SSG**: `pub const prerender = true` + `zig build prerender` → static HTML in `dist/`

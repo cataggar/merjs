@@ -4,14 +4,24 @@
 const std = @import("std");
 const runtime = @import("runtime");
 
-pub fn main() !void {
+pub fn main(init: std.process.Init.Minimal) !void {
     var gpa: std.heap.SafeAllocator = .init(std.heap.page_allocator, .{});
     defer _ = gpa.deinit();
     const alloc = gpa.allocator();
 
-    // Initialize std.Io runtime (Auto-selects Evented on Linux, Threaded elsewhere)
-    try runtime.init(alloc);
+    try runtime.init(alloc, init.environ);
     defer runtime.deinit();
+
+    var arena: std.heap.ArenaAllocator = .init(alloc);
+    defer arena.deinit();
+    const args = try init.args.toSlice(arena.allocator());
+    if (args.len != 1 and args.len != 3 and args.len != 4) {
+        std.debug.print("usage: codegen [app-dir api-dir [output-file]]\n", .{});
+        return error.InvalidArguments;
+    }
+    const app_dir = if (args.len >= 3) args[1] else "app";
+    const api_dir = if (args.len >= 3) args[2] else "api";
+    const output_path = if (args.len == 4) args[3] else "src/generated/routes.zig";
 
     // Each entry stores the full relative path from the project root.
     // e.g. "app/about.zig", "api/hello.zig"
@@ -21,8 +31,8 @@ pub fn main() !void {
         entries.deinit(alloc);
     }
 
-    try scanDir(alloc, &entries, "app");
-    try scanDir(alloc, &entries, "api");
+    try scanDir(alloc, &entries, app_dir, "app");
+    try scanDir(alloc, &entries, api_dir, "api");
 
     // Sort routes: static before dynamic, then alphabetically within each group.
     // This ensures /users/settings always matches before /users/:id.
@@ -62,7 +72,7 @@ pub fn main() !void {
         defer alloc.free(ident);
         const url = try toUrl(alloc, path);
         defer alloc.free(url);
-        try buf.print(alloc, "    .{{ .path = \"{s}\", .render = {s}.render, .render_stream = if (@hasDecl({s}, \"renderStream\")) {s}.renderStream else null, .meta = if (@hasDecl({s}, \"meta\")) {s}.meta else .{{}}, .prerender = if (@hasDecl({s}, \"prerender\")) {s}.prerender else false }},\n", .{ url, ident, ident, ident, ident, ident, ident, ident });
+        try buf.print(alloc, "    .{{ .path = \"{s}\", .render = {s}.render, .render_stream = if (@hasDecl({s}, \"renderStream\")) {s}.renderStream else null, .meta = if (@hasDecl({s}, \"meta\")) {s}.meta else .{{}}, .prerender = if (@hasDecl({s}, \"prerender\")) {s}.prerender else false, .middleware = if (@hasDecl({s}, \"middleware\")) {s}.middleware else null, .revalidate = if (@hasDecl({s}, \"revalidate\")) {s}.revalidate else 0 }},\n", .{ url, ident, ident, ident, ident, ident, ident, ident, ident, ident, ident, ident });
     }
     try buf.appendSlice(alloc, "};\n\n");
 
@@ -80,29 +90,41 @@ pub fn main() !void {
 
     // Layout — if app/layout.zig exists, export its wrap function.
     // Also export streamWrap for streaming SSR if the layout provides it.
-    if (fileExists("app/layout.zig")) {
+    if (try fileExists(app_dir, "layout.zig")) {
         try buf.appendSlice(alloc, "const app_layout = @import(\"app/layout\");\n");
         try buf.appendSlice(alloc, "pub const layout = app_layout.wrap;\n");
         try buf.appendSlice(alloc, "pub const streamLayout = if (@hasDecl(app_layout, \"streamWrap\")) app_layout.streamWrap else null;\n");
     }
 
     // Error handlers — if app/404.zig exists, export its render function.
-    if (fileExists("app/404.zig")) {
+    if (try fileExists(app_dir, "404.zig")) {
         try buf.appendSlice(alloc, "const app_404 = @import(\"app/404\");\n");
         try buf.appendSlice(alloc, "pub const notFound = app_404.render;\n");
     }
 
-    _ = try std.Io.Dir.cwd().createDirPathOpen(runtime.io, "src/generated", .{});
-    const out = try std.Io.Dir.cwd().createFile(runtime.io, "src/generated/routes.zig", .{});
+    // Global middleware — if app/middleware.zig exists, export its
+    // `global_middleware` slice so Router.fromGenerated picks it up.
+    if (try fileExists(app_dir, "middleware.zig")) {
+        try buf.appendSlice(alloc, "const app_middleware = @import(\"app/middleware\");\n");
+        try buf.appendSlice(alloc, "pub const global_middleware = app_middleware.global_middleware;\n");
+    }
+
+    if (std.fs.path.dirname(output_path)) |parent| {
+        try std.Io.Dir.cwd().createDirPath(runtime.io, parent);
+    }
+    const out = try std.Io.Dir.cwd().createFile(runtime.io, output_path, .{});
     defer out.close(runtime.io);
     try out.writePositionalAll(runtime.io, buf.items, 0);
 
-    std.debug.print("codegen: wrote {d} route(s) to src/generated/routes.zig\n", .{entries.items.len});
+    std.debug.print("codegen: wrote {d} route(s) to {s}\n", .{ entries.items.len, output_path });
 }
 
 /// Scan dir/ for *.zig files, appending "dir/file.zig" to entries.
-fn scanDir(alloc: std.mem.Allocator, entries: *std.ArrayList([]u8), dir: []const u8) !void {
-    var d = std.Io.Dir.cwd().openDir(runtime.io, dir, .{ .iterate = true }) catch return;
+fn scanDir(alloc: std.mem.Allocator, entries: *std.ArrayList([]u8), dir: []const u8, import_prefix: []const u8) !void {
+    var d = std.Io.Dir.cwd().openDir(runtime.io, dir, .{ .iterate = true }) catch |err| switch (err) {
+        error.FileNotFound => return,
+        else => return err,
+    };
     defer d.close(runtime.io);
     var walker = try d.walk(alloc);
     defer walker.deinit();
@@ -113,7 +135,13 @@ fn scanDir(alloc: std.mem.Allocator, entries: *std.ArrayList([]u8), dir: []const
         if (std.mem.eql(u8, entry.path, "layout.zig")) continue;
         // Skip 404.zig — it's an error handler, not a regular route.
         if (std.mem.eql(u8, entry.path, "404.zig")) continue;
-        const full = try std.fmt.allocPrint(alloc, "{s}/{s}", .{ dir, entry.path });
+        // Skip middleware.zig — it provides global_middleware, not a route.
+        if (std.mem.eql(u8, entry.path, "middleware.zig")) continue;
+        const full = try std.fmt.allocPrint(alloc, "{s}/{s}", .{ import_prefix, entry.path });
+        errdefer alloc.free(full);
+        for (full) |*c| {
+            if (c.* == '\\') c.* = '/';
+        }
         try entries.append(alloc, full);
     }
 }
@@ -206,8 +234,16 @@ fn toUrl(alloc: std.mem.Allocator, path: []const u8) ![]u8 {
     return result;
 }
 
-fn fileExists(path: []const u8) bool {
-    std.Io.Dir.cwd().access(runtime.io, path, .{}) catch return false;
+fn fileExists(dir: []const u8, path: []const u8) !bool {
+    var d = std.Io.Dir.cwd().openDir(runtime.io, dir, .{}) catch |err| switch (err) {
+        error.FileNotFound => return false,
+        else => return err,
+    };
+    defer d.close(runtime.io);
+    d.access(runtime.io, path, .{}) catch |err| switch (err) {
+        error.FileNotFound => return false,
+        else => return err,
+    };
     return true;
 }
 

@@ -11,7 +11,8 @@ const std = @import("std");
 const builtin = @import("builtin");
 const runtime = @import("runtime");
 
-pub const version = "0.2.5";
+pub const version = @import("build_options").version;
+const merjs_url = @import("build_options").merjs_url;
 
 const print = std.debug.print;
 
@@ -19,6 +20,11 @@ const print = std.debug.print;
 /// Caller owns the returned memory.
 fn resolveInPath(alloc: std.mem.Allocator, name: []const u8) ![]const u8 {
     if (std.fs.path.isAbsolute(name)) return alloc.dupe(u8, name);
+    const executable = if (builtin.target.os.tag == .windows and std.fs.path.extension(name).len == 0)
+        try std.fmt.allocPrint(alloc, "{s}.exe", .{name})
+    else
+        try alloc.dupe(u8, name);
+    defer alloc.free(executable);
 
     // Get PATH from environment using POSIX API
     const path_ptr = std.c.getenv("PATH") orelse return alloc.dupe(u8, name);
@@ -28,7 +34,7 @@ fn resolveInPath(alloc: std.mem.Allocator, name: []const u8) ![]const u8 {
     var it = std.mem.splitScalar(u8, path_env, std.fs.path.delimiter);
     while (it.next()) |dir| {
         if (dir.len == 0) continue;
-        const full_path = try std.fs.path.join(alloc, &.{ dir, name });
+        const full_path = try std.fs.path.join(alloc, &.{ dir, executable });
 
         // Check if file exists using Io.Dir via runtime
         std.Io.Dir.cwd().access(runtime.io, full_path, .{}) catch {
@@ -38,6 +44,55 @@ fn resolveInPath(alloc: std.mem.Allocator, name: []const u8) ![]const u8 {
         return full_path;
     }
     return alloc.dupe(u8, name);
+}
+
+/// Shown when the Zig compiler cannot be located on PATH. merjs shells out to
+/// `zig` for building/fetching, so this is the most common failure mode when
+/// the `mer` binary was installed on its own via npm/pip.
+const zig_not_found_message =
+    \\
+    \\❌ Zig not found on your PATH.
+    \\
+    \\   merjs builds your app with the Zig compiler, but `zig` could not be
+    \\   located. Official Zig 0.17.0 is required.
+    \\
+    \\   Install it from: https://ziglang.org/download/
+    \\   Then make sure `zig` is on your PATH and re-run this command.
+    \\
+    \\
+;
+
+/// Resolve `zig` to an absolute path on PATH, or null when it is not installed.
+/// Caller owns the returned memory.
+fn resolveZig(alloc: std.mem.Allocator) ?[]const u8 {
+    const resolved = resolveInPath(alloc, "zig") catch return null;
+    // resolveInPath returns an absolute path only when the executable is found
+    // on PATH; otherwise it echoes the bare name back as a fallback. Treat that
+    // fallback as "not found" so callers get a clear error instead of a raw
+    // FileNotFound spawn failure later on.
+    if (std.fs.path.isAbsolute(resolved)) return resolved;
+    alloc.free(resolved);
+    return null;
+}
+
+/// Resolve `zig` or print an actionable install message and exit(1).
+/// Caller owns the returned memory.
+fn requireZig(alloc: std.mem.Allocator) []const u8 {
+    return resolveZig(alloc) orelse {
+        print("{s}", .{zig_not_found_message});
+        std.process.exit(1);
+    };
+}
+
+/// How the running `mer` binary was installed. Detected from argv[0] so the
+/// post-init guidance matches the user's environment regardless of a git
+/// checkout being present.
+const InstallMethod = enum { npm, pip, standalone };
+
+fn detectInstallMethod(argv0: []const u8) InstallMethod {
+    if (std.mem.indexOf(u8, argv0, "node_modules") != null) return .npm;
+    if (std.mem.indexOf(u8, argv0, "site-packages") != null) return .pip;
+    return .standalone;
 }
 
 /// Get current Unix timestamp in milliseconds (vanity metric helper).
@@ -54,7 +109,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     const alloc = gpa.allocator();
 
     // Initialize std.Io runtime (Auto-selects Evented on Linux, Threaded elsewhere)
-    try runtime.init(alloc);
+    try runtime.init(alloc, init.environ);
     defer runtime.deinit();
 
     var arena_state: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
@@ -75,7 +130,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
 
     if (std.mem.eql(u8, cmd, "init")) {
         const name = if (args.len >= 3) args[2] else ".";
-        try cmdInit(alloc, name);
+        try cmdInit(alloc, name, args[0]);
         return;
     }
 
@@ -126,7 +181,6 @@ const template_files = [_]TemplateFile{
     .{ .path = "app/404.zig", .content = @embedFile("examples/starter/app/404.zig") },
     .{ .path = "api/hello.zig", .content = @embedFile("examples/starter/api/hello.zig") },
     .{ .path = "public/.gitkeep", .content = "" },
-    .{ .path = "tools/codegen.zig", .content = @embedFile("tools/codegen.zig") },
 };
 
 const build_zig_template =
@@ -138,6 +192,7 @@ const build_zig_template =
     \\
     \\    const merjs_dep = b.dependency("merjs", .{});
     \\    const mer_mod = merjs_dep.module("mer");
+    \\    const runtime_mod = merjs_dep.module("runtime");
     \\
     \\    const main_mod = b.createModule(.{
     \\        .root_source_file = b.path("src/main.zig"),
@@ -146,6 +201,7 @@ const build_zig_template =
     \\        .strip = if (optimize != .debug) true else null,
     \\    });
     \\    main_mod.addImport("mer", mer_mod);
+    \\    main_mod.addImport("runtime", runtime_mod);
     \\    addDirModules(b, main_mod, mer_mod, "app");
     \\    addDirModules(b, main_mod, mer_mod, "api");
     \\    addRoutesModule(b, main_mod, mer_mod);
@@ -154,13 +210,10 @@ const build_zig_template =
     \\    b.installArtifact(exe);
     \\
     \\    // zig build codegen
+    \\    const codegen_mod = merjs_dep.module("codegen");
     \\    const codegen_exe = b.addExecutable(.{
     \\        .name = "codegen",
-    \\        .root_module = b.createModule(.{
-    \\            .root_source_file = b.path("tools/codegen.zig"),
-    \\            .target = b.graph.host,
-    \\            .optimize = .debug,
-    \\        }),
+    \\        .root_module = codegen_mod,
     \\    });
     \\    const run_codegen = b.addRunArtifact(codegen_exe);
     \\    run_codegen.setCwd(b.path("."));
@@ -175,6 +228,13 @@ const build_zig_template =
     \\    run_exe.addPassthruArgs();
     \\    b.step("serve", "Start the dev server").dependOn(&run_exe.step);
     \\
+    \\    const run_prerender = b.addRunArtifact(exe);
+    \\    run_prerender.addArg("--prerender");
+    \\    run_prerender.step.dependOn(b.getInstallStep());
+    \\    b.step("prerender", "Pre-render pages to dist/").dependOn(&run_prerender.step);
+    \\    const prod_step = b.step("prod", "Build and pre-render the app");
+    \\    prod_step.dependOn(&run_prerender.step);
+    \\
     \\    // zig build test
     \\    const test_mod = b.createModule(.{
     \\        .root_source_file = b.path("src/main.zig"),
@@ -182,6 +242,7 @@ const build_zig_template =
     \\        .optimize = optimize,
     \\    });
     \\    test_mod.addImport("mer", mer_mod);
+    \\    test_mod.addImport("runtime", runtime_mod);
     \\    addDirModules(b, test_mod, mer_mod, "app");
     \\    addDirModules(b, test_mod, mer_mod, "api");
     \\    addRoutesModule(b, test_mod, mer_mod);
@@ -225,6 +286,9 @@ const build_zig_template =
     \\        if (std.mem.eql(u8, entry.path, "layout.zig")) continue;
     \\        const file_path = b.fmt("{s}/{s}", .{ dir, entry.path });
     \\        const import_name = b.fmt("{s}/{s}", .{ dir, entry.path[0 .. entry.path.len - 4] });
+    \\        for (import_name) |*c| {
+    \\            if (c.* == '\\') c.* = '/';
+    \\        }
     \\        const route_mod = b.createModule(.{ .root_source_file = b.path(file_path) });
     \\        route_mod.addImport("mer", mer_mod);
     \\        if (layout_mod) |lm| route_mod.addImport(b.fmt("{s}/layout", .{dir}), lm);
@@ -243,6 +307,7 @@ const main_zig_template =
     \\
     \\const std = @import("std");
     \\const mer = @import("mer");
+    \\const runtime = @import("runtime");
     \\
     \\const log = std.log.scoped(.main);
     \\
@@ -250,6 +315,12 @@ const main_zig_template =
     \\    var gpa: std.heap.SafeAllocator = .init(std.heap.page_allocator, .{});
     \\    defer _ = gpa.deinit();
     \\    const alloc = gpa.allocator();
+    \\
+    \\    // Initialize the std.Io runtime with the process environment.
+    \\    // Must run before any mer.Server / mer.fetch call touches runtime.io.
+    \\    try runtime.init(alloc, init.environ);
+    \\    defer runtime.deinit();
+    \\    runtime.logBackend();
     \\
     \\    var arena_state: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
     \\    defer arena_state.deinit();
@@ -389,7 +460,11 @@ fn writeBuildZigZon(dir: std.Io.Dir, alloc: std.mem.Allocator, name: []const u8)
     try file.writeStreamingAll(runtime.io, "    .minimum_zig_version = \"0.17.0\",\n");
     try file.writeStreamingAll(runtime.io, "    .dependencies = .{\n");
     try file.writeStreamingAll(runtime.io, "        .merjs = .{\n");
-    try file.writeStreamingAll(runtime.io, "            .url = \"git+https://github.com/justrach/merjs.git\",\n");
+    const quoted_url = try std.json.Stringify.valueAlloc(alloc, merjs_url, .{});
+    defer alloc.free(quoted_url);
+    try file.writeStreamingAll(runtime.io, "            .url = ");
+    try file.writeStreamingAll(runtime.io, quoted_url);
+    try file.writeStreamingAll(runtime.io, ",\n");
     try file.writeStreamingAll(runtime.io, "        },\n");
     try file.writeStreamingAll(runtime.io, "    },\n");
     try file.writeStreamingAll(runtime.io, "    .paths = .{\n");
@@ -403,12 +478,21 @@ fn writeBuildZigZon(dir: std.Io.Dir, alloc: std.mem.Allocator, name: []const u8)
     try file.writeStreamingAll(runtime.io, "}\n");
 }
 
-fn cmdInit(alloc: std.mem.Allocator, name: []const u8) !void {
+fn cmdInit(alloc: std.mem.Allocator, name: []const u8, argv0: []const u8) !void {
     // Start timing for vanity metrics
     const start_ms = currentMs();
     var file_count: usize = 0;
 
     print("\n🚀 mer init — scaffolding new project\n\n", .{});
+
+    // Building the scaffold requires the Zig compiler (for the fingerprint
+    // build + dependency fetch below). Fail fast with a clear, actionable
+    // message before creating any files, rather than scaffolding a project and
+    // then crashing with a raw FileNotFound when we try to spawn `zig`.
+    const zig_exe = requireZig(alloc);
+    defer alloc.free(zig_exe);
+
+    const install_method = detectInstallMethod(argv0);
 
     const use_cwd = std.mem.eql(u8, name, ".");
     if (!use_cwd) {
@@ -430,7 +514,7 @@ fn cmdInit(alloc: std.mem.Allocator, name: []const u8) !void {
 
     // Write template files.
     try writeTemplateFiles(dir);
-    file_count += 7; // 7 template files
+    file_count += template_files.len;
 
     // Write build.zig.
     {
@@ -449,8 +533,6 @@ fn cmdInit(alloc: std.mem.Allocator, name: []const u8) !void {
     const build_start_ms = currentMs();
     {
         const cwd_path = if (use_cwd) "." else name;
-        const zig_exe = try resolveInPath(alloc, "zig");
-        defer alloc.free(zig_exe);
         const result = try std.process.run(alloc, runtime.io, .{
             .argv = &.{ zig_exe, "build" },
             .cwd = .{ .path = cwd_path },
@@ -480,6 +562,15 @@ fn cmdInit(alloc: std.mem.Allocator, name: []const u8) !void {
                 defer out_file.close(runtime.io);
                 try out_file.writeStreamingAll(runtime.io, new_content);
             }
+        } else {
+            const succeeded = switch (result.term) {
+                .exited => |code| code == 0,
+                else => false,
+            };
+            if (!succeeded) {
+                print("mer: initial build failed:\n{s}", .{result.stderr});
+                std.process.exit(1);
+            }
         }
     }
 
@@ -488,53 +579,20 @@ fn cmdInit(alloc: std.mem.Allocator, name: []const u8) !void {
     const fetch_start_ms = currentMs();
     {
         const cwd_path = if (use_cwd) "." else name;
-        const zig_exe = try resolveInPath(alloc, "zig");
-        defer alloc.free(zig_exe);
 
-        // Get the package hash (printed to stdout by zig fetch without --save).
-        const hash_result = try std.process.run(alloc, runtime.io, .{
-            .argv = &.{ zig_exe, "fetch", "git+https://github.com/justrach/merjs.git" },
+        const result = try std.process.run(alloc, runtime.io, .{
+            .argv = &.{ zig_exe, "fetch", "--save=merjs", merjs_url },
             .cwd = .{ .path = cwd_path },
         });
-        defer alloc.free(hash_result.stdout);
-        defer alloc.free(hash_result.stderr);
-
-        if (hash_result.term.exited != 0) {
-            print("   ⚠️  Could not fetch merjs dependency (no network?)\n", .{});
-            print("      Run manually: zig fetch --save=merjs git+https://github.com/justrach/merjs.git\n", .{});
-        } else {
-            const pkg_hash = std.mem.trimEnd(u8, hash_result.stdout, "\n\r ");
-
-            // Pin the commit URL into build.zig.zon.
-            const save_result = try std.process.run(alloc, runtime.io, .{
-                .argv = &.{ zig_exe, "fetch", "--save=merjs", "git+https://github.com/justrach/merjs.git" },
-                .cwd = .{ .path = cwd_path },
-            });
-            alloc.free(save_result.stderr);
-
-            // Patch .hash into build.zig.zon after the .url line.
-            if (pkg_hash.len > 0) {
-                const zon_path_str = if (use_cwd) "build.zig.zon" else try std.fmt.allocPrint(alloc, "{s}/build.zig.zon", .{name});
-                defer if (!use_cwd) alloc.free(zon_path_str);
-                const zon_content = try std.Io.Dir.cwd().readFileAlloc(runtime.io, zon_path_str, alloc, .limited(8192));
-                defer alloc.free(zon_content);
-                if (std.mem.indexOf(u8, zon_content, ".url = \"git+https://github.com/justrach/merjs.git")) |url_start| {
-                    if (std.mem.indexOfPos(u8, zon_content, url_start, "\n")) |eol| {
-                        const insert_pos = eol + 1;
-                        const hash_line = try std.fmt.allocPrint(alloc, "            .hash = \"{s}\",\n", .{pkg_hash});
-                        defer alloc.free(hash_line);
-                        const new_content = try std.mem.concat(alloc, u8, &.{
-                            zon_content[0..insert_pos],
-                            hash_line,
-                            zon_content[insert_pos..],
-                        });
-                        defer alloc.free(new_content);
-                        const out_file = try std.Io.Dir.cwd().createFile(runtime.io, zon_path_str, .{});
-                        defer out_file.close(runtime.io);
-                        try out_file.writeStreamingAll(runtime.io, new_content);
-                    }
-                }
-            }
+        defer alloc.free(result.stdout);
+        defer alloc.free(result.stderr);
+        const succeeded = switch (result.term) {
+            .exited => |code| code == 0,
+            else => false,
+        };
+        if (!succeeded) {
+            print("mer: could not fetch {s}:\n{s}", .{ merjs_url, result.stderr });
+            std.process.exit(1);
         }
     }
 
@@ -595,8 +653,15 @@ fn cmdInit(alloc: std.mem.Allocator, name: []const u8) !void {
 
     print("Next steps:\n\n", .{});
     if (!use_cwd) print("  cd {s}\n", .{name});
-    print("  mer dev               # start dev server with hot reload\n", .{});
-    print("  # or:\n", .{});
+    // `mer dev` and `zig build serve` are equivalent and both work no matter how
+    // `mer` was installed (npm, pip, install.sh, or a git checkout). We show the
+    // `mer` command that matches how this binary was invoked, plus the raw
+    // `zig build serve` fallback for anyone who only has the Zig toolchain.
+    switch (install_method) {
+        .npm => print("  npx mer dev           # start dev server with hot reload\n", .{}),
+        else => print("  mer dev               # start dev server with hot reload\n", .{}),
+    }
+    print("  # or, using the Zig toolchain directly:\n", .{});
     print("  zig build serve       # start dev server on :3000\n", .{});
     print("\nOptional:\n", .{});
     print("  mer add css           # add Tailwind CSS support\n", .{});
@@ -631,18 +696,25 @@ test "build_zig_template exposes a starter test step" {
     try std.testing.expect(std.mem.indexOf(u8, build_zig_template, "run_tests.step.dependOn(&run_codegen.step);") != null);
 }
 
-test "build_zig_template uses local codegen entrypoint" {
-    try std.testing.expect(std.mem.indexOf(u8, build_zig_template, "b.path(\"tools/codegen.zig\")") != null);
-    try std.testing.expect(std.mem.indexOf(u8, build_zig_template, "merjs_dep.path(\"tools/codegen.zig\")") == null);
+test "build_zig_template uses the wired public codegen module" {
+    try std.testing.expect(std.mem.indexOf(u8, build_zig_template, "merjs_dep.module(\"codegen\")") != null);
+    try std.testing.expect(std.mem.indexOf(u8, build_zig_template, "b.path(\"tools/codegen.zig\")") == null);
 }
 
-// NOTE: These tests are disabled in Zig 0.16 because std.testing.tmpDir
-// uses the old std.testing.io API which is incompatible with std.Io.
-// The functionality is tested via integration tests in build.zig.
+test "build_zig_template wires runtime module into app and test modules" {
+    try std.testing.expect(std.mem.indexOf(u8, build_zig_template, "main_mod.addImport(\"runtime\", runtime_mod)") != null);
+    try std.testing.expect(std.mem.indexOf(u8, build_zig_template, "test_mod.addImport(\"runtime\", runtime_mod)") != null);
+}
+
+test "main_zig_template initializes the std.Io runtime before serving" {
+    // Without runtime.init, mer.Server.listen dereferences an undefined io.
+    try std.testing.expect(std.mem.indexOf(u8, main_zig_template, "const runtime = @import(\"runtime\");") != null);
+    try std.testing.expect(std.mem.indexOf(u8, main_zig_template, "try runtime.init(alloc, init.environ);") != null);
+    try std.testing.expect(std.mem.indexOf(u8, main_zig_template, "defer runtime.deinit();") != null);
+}
 
 test "writeBuildZigZon uses sanitized basename for absolute paths" {
-    // Skip when running inline tests (runtime.io not initialized)
-    if (@import("builtin").is_test) return error.SkipZigTest;
+    runtime.io = std.testing.io;
 
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -653,11 +725,13 @@ test "writeBuildZigZon uses sanitized basename for absolute paths" {
 
     try std.testing.expect(std.mem.indexOf(u8, content, ".name = .my_app") != null);
     try std.testing.expect(std.mem.indexOf(u8, content, "\"public\"") != null);
+    const quoted_url = try std.json.Stringify.valueAlloc(std.testing.allocator, merjs_url, .{});
+    defer std.testing.allocator.free(quoted_url);
+    try std.testing.expect(std.mem.indexOf(u8, content, quoted_url) != null);
 }
 
 test "writeTemplateFiles emits starter scaffold files" {
-    // Skip when running inline tests (runtime.io not initialized)
-    if (@import("builtin").is_test) return error.SkipZigTest;
+    runtime.io = std.testing.io;
 
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
@@ -670,7 +744,6 @@ test "writeTemplateFiles emits starter scaffold files" {
     try tmp.dir.access(runtime.io, "app/404.zig", .{});
     try tmp.dir.access(runtime.io, "api/hello.zig", .{});
     try tmp.dir.access(runtime.io, "public/.gitkeep", .{});
-    try tmp.dir.access(runtime.io, "tools/codegen.zig", .{});
 }
 
 test "generated routes placeholder is valid scaffold output" {
@@ -686,10 +759,13 @@ fn cmdDev(alloc: std.mem.Allocator, extra_args: []const []const u8) !void {
         std.process.exit(1);
     };
 
+    const zig_exe = requireZig(alloc);
+    defer alloc.free(zig_exe);
+
     print("mer: running codegen...\n", .{});
     {
         const result = try std.process.run(alloc, runtime.io, .{
-            .argv = &.{ "zig", "build", "codegen" },
+            .argv = &.{ zig_exe, "build", "codegen" },
         });
         defer alloc.free(result.stdout);
         defer alloc.free(result.stderr);
@@ -703,7 +779,7 @@ fn cmdDev(alloc: std.mem.Allocator, extra_args: []const []const u8) !void {
     print("mer: starting dev server...\n", .{});
     var argv: std.ArrayList([]const u8) = .empty;
     defer argv.deinit(alloc);
-    try argv.appendSlice(alloc, &.{ "zig", "build", "serve" });
+    try argv.appendSlice(alloc, &.{ zig_exe, "build", "serve" });
     if (extra_args.len > 0) {
         try argv.append(alloc, "--");
         for (extra_args) |arg| try argv.append(alloc, arg);
@@ -718,15 +794,18 @@ fn cmdDev(alloc: std.mem.Allocator, extra_args: []const []const u8) !void {
 }
 
 // -- build -------------------------------------------------------------------
-fn cmdBuild(_: std.mem.Allocator) !void {
+fn cmdBuild(alloc: std.mem.Allocator) !void {
     std.Io.Dir.cwd().access(runtime.io, "build.zig", .{}) catch {
         print("mer: no build.zig found — are you in a merjs project?\n", .{});
         std.process.exit(1);
     };
 
+    const zig_exe = requireZig(alloc);
+    defer alloc.free(zig_exe);
+
     print("mer: production build...\n", .{});
     var child = try std.process.spawn(runtime.io, .{
-        .argv = &.{ "zig", "build", "-Doptimize=small", "prod" },
+        .argv = &.{ zig_exe, "build", "-Doptimize=small", "prod" },
         .stdout = .inherit,
         .stderr = .inherit,
     });
@@ -741,15 +820,18 @@ fn cmdBuild(_: std.mem.Allocator) !void {
 
 // ── update ──────────────────────────────────────────────────────────────────
 
-fn cmdUpdate(_: std.mem.Allocator) !void {
+fn cmdUpdate(alloc: std.mem.Allocator) !void {
     std.Io.Dir.cwd().access(runtime.io, "build.zig.zon", .{}) catch {
         print("mer: no build.zig.zon found -- are you in a merjs project?\n", .{});
         std.process.exit(1);
     };
 
+    const zig_exe = requireZig(alloc);
+    defer alloc.free(zig_exe);
+
     print("mer: updating merjs to latest...\n", .{});
     var child = try std.process.spawn(runtime.io, .{
-        .argv = &.{ "zig", "fetch", "--save=merjs", "git+https://github.com/justrach/merjs.git" },
+        .argv = &.{ zig_exe, "fetch", "--save=merjs", merjs_url },
         .stdout = .inherit,
         .stderr = .inherit,
     });
@@ -976,4 +1058,23 @@ fn printUsage() void {
     print("    mer update           update merjs to latest version\n", .{});
     print("    mer --version        print version\n", .{});
     print("\n  https://github.com/justrach/merjs\n\n", .{});
+}
+
+// --- Tests ------------------------------------------------------------------
+
+test "cli version matches build.zig.zon" {
+    const expected = @import("build_options").version;
+    try std.testing.expectEqualStrings(expected, version);
+}
+
+test "detectInstallMethod recognizes npm, pip, and standalone paths" {
+    try std.testing.expectEqual(InstallMethod.npm, detectInstallMethod("/usr/lib/node_modules/merlionjs/bin/mer"));
+    try std.testing.expectEqual(InstallMethod.pip, detectInstallMethod("/opt/venv/lib/python3.11/site-packages/merjs/bin/mer"));
+    try std.testing.expectEqual(InstallMethod.standalone, detectInstallMethod("/home/user/.merjs/bin/mer"));
+    try std.testing.expectEqual(InstallMethod.standalone, detectInstallMethod("mer"));
+}
+
+test "zig_not_found_message references the download page" {
+    try std.testing.expect(std.mem.indexOf(u8, zig_not_found_message, "https://ziglang.org/download/") != null);
+    try std.testing.expect(std.mem.indexOf(u8, zig_not_found_message, "0.17.0") != null);
 }

@@ -52,7 +52,7 @@ const Voice = struct {
     flt: f32 = 0, // one-pole lowpass state
 };
 
-var voices: [MAX_V]Voice = [_]Voice{.{}} ** MAX_V;
+var voices: [MAX_V]Voice = @splat(.{});
 
 // ── Global params ─────────────────────────────────────────────────────────────
 var wave: u8 = 0; // 0=sine 1=square 2=saw 3=tri

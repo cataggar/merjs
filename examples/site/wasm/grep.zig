@@ -26,10 +26,10 @@ export fn get_result_len() u32 {
 // ── Stopwords ──────────────────────────────────────────────────────────────
 fn isStopword(w: []const u8) bool {
     const stops = [_][]const u8{
-        "the", "and", "for", "are", "was", "were", "been", "have", "has",
-        "had", "not", "but", "with", "from", "this", "that", "its",
-        "which", "who", "how", "much", "many", "what", "does", "did",
-        "will", "would", "could", "should",
+        "the",   "and",    "for",  "are",  "was",  "were", "been", "have", "has",
+        "had",   "not",    "but",  "with", "from", "this", "that", "its",  "which",
+        "who",   "how",    "much", "many", "what", "does", "did",  "will", "would",
+        "could", "should",
     };
     for (stops) |s| {
         if (std.mem.eql(u8, w, s)) return true;
@@ -77,7 +77,7 @@ export fn grep(q_len: u32, c_len: u32) void {
 
     // ── Extract keywords (lowercase, >2 chars, not stopword) ───────────
     var kw_bufs: [MAX_KW][64]u8 = undefined;
-    var kw_lens: [MAX_KW]usize = [_]usize{0} ** MAX_KW;
+    var kw_lens: [MAX_KW]usize = @splat(0);
     var nkw: usize = 0;
 
     var start: usize = 0;
@@ -102,7 +102,7 @@ export fn grep(q_len: u32, c_len: u32) void {
 
     // ── Score chunks ───────────────────────────────────────────────────
     const Entry = struct { index: u32, score: u32 };
-    var top: [TOP_N]Entry = [_]Entry{.{ .index = 0, .score = 0 }} ** TOP_N;
+    var top: [TOP_N]Entry = @splat(.{ .index = 0, .score = 0 });
 
     var pos: usize = 0;
     var idx: u32 = 0;
@@ -147,8 +147,8 @@ export fn grep(q_len: u32, c_len: u32) void {
     }
 
     // ── Write JSON result ──────────────────────────────────────────────
-    var out = std.io.fixedBufferStream(&result_buf);
-    const w = out.writer();
+    var out: std.Io.Writer = .fixed(&result_buf);
+    const w = &out;
     w.writeByte('[') catch return;
     var first = true;
     for (top) |t| {
@@ -158,5 +158,5 @@ export fn grep(q_len: u32, c_len: u32) void {
         first = false;
     }
     w.writeByte(']') catch return;
-    result_len = @intCast(out.pos);
+    result_len = @intCast(out.end);
 }

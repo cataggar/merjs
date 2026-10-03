@@ -8,11 +8,15 @@ const res_mod = @import("response.zig");
 const session_mod = @import("session.zig");
 const fetch_mod = @import("fetch.zig");
 
-// Compile-time CSS generation (experimental)
+// Compile-time CSS generation (experimental) + design tokens (yxlyx #92/#95)
 pub const mercss = @import("mercss.zig");
+pub const design = @import("design.zig");
 
-/// Framework version — kept in sync with build.zig.zon.
-pub const version = "0.2.5";
+/// Framework version. Single source of truth: `build.zig.zon`.
+/// Wired in via the `build_options` module in `build.zig` so this constant
+/// can never drift from the package version. Drift is also asserted by a
+/// test in this file (`test "version matches build.zig.zon"`).
+pub const version = @import("build_options").version;
 
 // --- Streaming SSR ----------------------------------------------------------
 
@@ -144,6 +148,10 @@ pub const wasmBeginCollect = fetch_mod.wasmBeginCollect;
 pub const wasmEndCollect = fetch_mod.wasmEndCollect;
 pub const wasmProvideResult = fetch_mod.wasmProvideResult;
 pub const wasmClearCache = fetch_mod.wasmClearCache;
+pub const WasiFetchFn = fetch_mod.WasiFetchFn;
+pub fn setWasiFetch(impl: WasiFetchFn) void {
+    fetch_mod.wasi_fetch_impl = impl;
+}
 
 // --- SEO / Meta tags --------------------------------------------------------
 
@@ -197,24 +205,70 @@ pub const dev = @import("dev.zig");
 pub const RenderFn = *const fn (req: Request) Response;
 pub const StreamRenderFn = *const fn (req: Request, stream: *StreamWriter) void;
 
+/// Route guard / middleware. Returning a non-null `Response` short-circuits
+/// dispatch: the render fn is skipped and the returned response is sent as-is
+/// (no layout wrapping). Returning null lets the request continue.
+///
+///   pub const middleware = mer.requireSession;   // per-route guard
+///   // or, in the generated routes module:
+///   pub const global_middleware: []const mer.MiddlewareFn = &.{ myGuard };
+pub const MiddlewareFn = *const fn (req: Request) ?Response;
+
 pub const Route = struct {
     path: []const u8,
     render: RenderFn,
     render_stream: ?StreamRenderFn = null,
     meta: Meta = .{},
     prerender: bool = false,
+    /// Optional per-route guard. Runs after global middleware, before render.
+    middleware: ?MiddlewareFn = null,
+    /// Incremental Static Regeneration (ISR) TTL in seconds.
+    /// 0 (default) disables caching — the page renders on every request.
+    /// When > 0, the rendered HTML is cached and served instantly within the
+    /// TTL; after it elapses the stale copy is served while a background
+    /// re-render refreshes the cache (stale-while-revalidate).
+    revalidate: u32 = 0,
 };
+
+/// Built-in guard: redirect to `/login` (303) when no `session` cookie exists.
+/// Use as a per-route `middleware` or inside a `global_middleware` slice.
+pub fn requireSession(req: Request) ?Response {
+    if (req.cookie("session") == null) return redirect("/login", .see_other);
+    return null;
+}
 
 // --- Runtime (server, router, watcher, prerender) ----------------------------
 // Re-exported so consumer projects only need `@import("mer")`.
 // Requires the self-referential `mer_mod.addImport("mer", mer_mod)` in build.zig
 // so that transitive file-imports (server.zig → router.zig → mer) resolve.
 
+pub const dispatch = @import("dispatch.zig");
 pub const Router = @import("router.zig").Router;
 pub const LayoutFn = @import("router.zig").LayoutFn;
 pub const StreamLayoutFn = @import("router.zig").StreamLayoutFn;
 pub const Server = @import("server.zig").Server;
 pub const Config = @import("server.zig").Config;
 pub const ServerReady = @import("server.zig").ServerReady;
+pub const security_headers = @import("server.zig").security_headers;
 pub const Watcher = @import("watcher.zig").Watcher;
+pub const native = @import("native.zig");
 pub const runPrerender = @import("prerender.zig").run;
+
+// --- Tests ------------------------------------------------------------------
+
+test "version is sourced from build.zig.zon via build_options" {
+    // Guard against future reverts to a hardcoded literal that drifts from
+    // the package version in build.zig.zon. Both sides resolve to the same
+    // build-time string today; the test fails if anyone breaks that chain.
+    const expected = @import("build_options").version;
+    try std.testing.expectEqualStrings(expected, version);
+
+    // Sanity-check the shape so a typo in build.zig.zon (e.g. "0.2" or "")
+    // surfaces here rather than at runtime in /_mer/health.
+    try std.testing.expect(version.len >= 5);
+    var dots: u32 = 0;
+    for (version) |c| {
+        if (c == '.') dots += 1;
+    }
+    try std.testing.expectEqual(@as(u32, 2), dots);
+}

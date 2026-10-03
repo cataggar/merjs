@@ -45,7 +45,8 @@ fn tableSet(key: []const u8, val: []const u8) void {
 pub fn get(name: []const u8) ?[]const u8 {
     if (tableGet(name)) |v| return v;
     if (builtin.target.cpu.arch != .wasm32) {
-        const ptr = std.c.getenv(@ptrCast(name.ptr)) orelse return null; return std.mem.sliceTo(ptr, 0);
+        const ptr = std.c.getenv(@ptrCast(name.ptr)) orelse return null;
+        return std.mem.sliceTo(ptr, 0);
     }
     return null;
 }

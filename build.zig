@@ -4,9 +4,21 @@ const examples = @import("build/examples.zig");
 const tools = @import("build/tools.zig");
 const packages = @import("build/packages.zig");
 
+/// Single source of truth for the framework version.
+/// Every runtime constant (mer.version, cli.version, the macOS bundle plist,
+/// /_mer/health JSON) is derived from `zon.version` via the build_options
+/// module wired below. To bump the version, edit build.zig.zon only.
+const zon = @import("build.zig.zon");
+
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+
+    // ── build_options module (zon-derived constants) ────────────────────────
+    const build_opts = b.addOptions();
+    build_opts.addOption([]const u8, "version", zon.version);
+    build_opts.addOption([]const u8, "merjs_url", b.option([]const u8, "merjs-url", "Framework dependency source for mer init and mer update") orelse "git+https://github.com/cataggar/merjs.git");
+    const build_options_mod = build_opts.createModule();
 
     // ── dhi dependency ──────────────────────────────────────────────────────
     const dhi_dep = b.dependency("dhi", .{});
@@ -14,10 +26,10 @@ pub fn build(b: *std.Build) void {
     const dhi_validator_mod = dhi_dep.module("validator");
 
     // ── kuri dependency (browser automation for debug mode) ─────────────────
-    // TODO: re-enable once kuri is updated for Zig 0.16
+    // TODO: re-enable once kuri is updated for Zig 0.17
     // const kuri_dep = b.dependency("kuri", .{
     //     .target = target,
-    //     .optimize = if (optimize != .Debug) optimize else .ReleaseFast,
+    //     .optimize = if (optimize != .debug) optimize else .fast,
     // });
 
     // ── Runtime module (std.Io instance management) ───────────────────────────
@@ -33,11 +45,22 @@ pub fn build(b: *std.Build) void {
     mer_mod.addImport("dhi_model", dhi_model_mod);
     mer_mod.addImport("dhi_validator", dhi_validator_mod);
     mer_mod.addImport("runtime", runtime_mod);
+    mer_mod.addImport("build_options", build_options_mod);
 
     // ── turboapi-core (shared router + HTTP utilities) ──
     const core_dep = b.dependency("turboapi_core", .{});
     const core_mod = core_dep.module("turboapi-core");
     mer_mod.addImport("turboapi-core", core_mod);
+
+    // Narrow module rooted directly at turboapi-core's pure HTTP helpers
+    // (`http.zig` imports only `std`). Importing the full `turboapi-core`
+    // root would transitively AstGen `router.zig`, whose fuzz corpus uses a
+    // literal the pinned Zig rejects, so we point straight at http.zig for
+    // the shared query-string parser (issue #66).
+    const core_http_mod = b.createModule(.{
+        .root_source_file = core_dep.path("src/http.zig"),
+    });
+    mer_mod.addImport("turboapi-http", core_http_mod);
 
     // Self-referential import: internal files (server.zig, router.zig, …)
     // file-imported from mer.zig still resolve their `@import("mer")` calls.
@@ -49,7 +72,7 @@ pub fn build(b: *std.Build) void {
     const server_mod = b.addModule("server", .{ .root_source_file = b.path("src/server.zig") });
     server_mod.addImport("mer", mer_mod);
     const watcher_named = b.addModule("watcher", .{ .root_source_file = b.path("src/watcher.zig") });
-    _ = watcher_named;
+    watcher_named.addImport("runtime", runtime_mod);
     const prerender_mod = b.addModule("prerender", .{ .root_source_file = b.path("src/prerender.zig") });
     prerender_mod.addImport("mer", mer_mod);
 
@@ -77,12 +100,15 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(exe);
 
     // Install kuri binary alongside merjs.
-    // TODO: re-enable once kuri is updated for Zig 0.16
+    // TODO: re-enable once kuri is updated for Zig 0.17
     // const install_kuri = b.addInstallArtifact(kuri_dep.artifact("kuri"), .{});
     // b.getInstallStep().dependOn(&install_kuri.step);
 
     // ── Codegen ──────────────────────────────────────────────────────────────
-    const codegen_mod = b.createModule(.{
+    // Exposed as a public module (`merjs_dep.module("codegen")`) so consumers
+    // can build the route generator without reaching into internal paths (#67),
+    // alongside the "server" and "worker" module exports above.
+    const codegen_mod = b.addModule("codegen", .{
         .root_source_file = b.path("tools/codegen.zig"),
         .target = b.graph.host,
         .optimize = .debug,
@@ -92,16 +118,10 @@ pub fn build(b: *std.Build) void {
     const codegen_exe = b.addExecutable(.{ .name = "codegen", .root_module = codegen_mod });
     const run_codegen = b.addRunArtifact(codegen_exe);
     run_codegen.setCwd(b.path("."));
+    run_codegen.addArgs(&.{ "examples/site/app", "examples/site/api" });
     b.step("codegen", "Regenerate src/generated/routes.zig").dependOn(&run_codegen.step);
 
-    // ── Auto-run codegen before compiling ───────────────────────────────────
-    // NOTE: `run_codegen` scans root-level app/ and api/ (empty in this repo —
-    // the framework's own demo lives in examples/site/ instead). Wiring it as
-    // a dependency of `exe` would silently overwrite the checked-in, correct
-    // src/generated/routes.zig (generated from examples/site/{app,api}) with
-    // an empty one on every build, breaking `zig build serve` for everyone.
-    // Run `zig build codegen` manually only when using root app/ + api/ as
-    // your own project (e.g. testing the framework in-place).
+    exe.step.dependOn(&run_codegen.step);
 
     // ── `zig build serve` ────────────────────────────────────────────────────
     const run_exe = b.addRunArtifact(exe);
@@ -141,22 +161,31 @@ pub fn build(b: *std.Build) void {
     b.step("grep", "Compile grep WASM").dependOn(&install_grep.step);
 
     // ── Worker WASM ─────────────────────────────────────────────────────────
+    // Freestanding consumers cannot inherit the native module's libc linkage.
+    const worker_mer_mod = b.createModule(.{ .root_source_file = b.path("src/mer.zig") });
+    var mer_imports = mer_mod.import_table.iterator();
+    while (mer_imports.next()) |entry| {
+        if (std.mem.eql(u8, entry.key_ptr.*, "mer")) continue;
+        worker_mer_mod.addImport(entry.key_ptr.*, entry.value_ptr.*);
+    }
+    worker_mer_mod.addImport("mer", worker_mer_mod);
+
     const worker_named = b.addModule("worker", .{
         .root_source_file = b.path("src/worker.zig"),
         .target = wasm_target,
         .optimize = .small,
     });
-    worker_named.addImport("mer", mer_mod);
+    worker_named.addImport("mer", worker_mer_mod);
     const worker_mod = b.createModule(.{
         .root_source_file = b.path("src/worker.zig"),
         .target = wasm_target,
         .optimize = .small,
     });
-    worker_mod.addImport("mer", mer_mod);
+    worker_mod.addImport("mer", worker_mer_mod);
     worker_mod.addImport("counter_config", counter_config_mod);
-    helpers.addDirModules(b, worker_mod, mer_mod, "examples/site/app", "app", site_extras);
-    helpers.addDirModules(b, worker_mod, mer_mod, "examples/site/api", "api", &.{});
-    helpers.addRoutesModule(b, worker_mod, mer_mod, "src/generated/routes.zig", "examples/site/app", "examples/site/api", site_extras);
+    helpers.addDirModules(b, worker_mod, worker_mer_mod, "examples/site/app", "app", site_extras);
+    helpers.addDirModules(b, worker_mod, worker_mer_mod, "examples/site/api", "api", &.{});
+    helpers.addRoutesModule(b, worker_mod, worker_mer_mod, "src/generated/routes.zig", "examples/site/app", "examples/site/api", site_extras);
     const worker_wasm = b.addExecutable(.{ .name = "merjs", .root_module = worker_mod });
     worker_wasm.rdynamic = true;
     worker_wasm.entry = .disabled;
@@ -167,8 +196,32 @@ pub fn build(b: *std.Build) void {
     worker_step.dependOn(&install_worker.step);
     worker_step.dependOn(&install_grep.step);
 
+    // ── Fastly Compute WASM ───────────────────────────────────────────────
+    const fastly_target = b.resolveTargetQuery(.{
+        .cpu_arch = .wasm32,
+        .os_tag = .wasi,
+    });
+    const zigly_dep = b.dependency("zigly", .{});
+    const fastly_mod = b.createModule(.{
+        .root_source_file = b.path("src/fastly.zig"),
+        .target = fastly_target,
+        .optimize = .small,
+    });
+    fastly_mod.addImport("mer", mer_mod);
+    fastly_mod.addImport("zigly", zigly_dep.module("zigly"));
+    fastly_mod.addImport("counter_config", counter_config_mod);
+    helpers.addStaticAssets(b, fastly_mod, "examples/site/public");
+    helpers.addDirModules(b, fastly_mod, mer_mod, "examples/site/app", "app", site_extras);
+    helpers.addDirModules(b, fastly_mod, mer_mod, "examples/site/api", "api", &.{});
+    helpers.addRoutesModule(b, fastly_mod, mer_mod, "src/generated/routes.zig", "examples/site/app", "examples/site/api", site_extras);
+    const fastly_exe = b.addExecutable(.{ .name = "merjs-fastly", .root_module = fastly_mod });
+    fastly_exe.step.dependOn(&run_codegen.step);
+    const install_fastly = b.addInstallFile(fastly_exe.getEmittedBin(), "../examples/site/fastly/merjs.wasm");
+    const fastly_step = b.step("fastly", "Compile Fastly Compute WASM module");
+    fastly_step.dependOn(&install_fastly.step);
+
     // ── Examples (sgdata, kanban) ────────────────────────────────────────────
-    examples.addExamples(b, mer_mod, wasm_target);
+    examples.addExamples(b, worker_mer_mod, wasm_target);
 
     // ── Tools (CSS, setup) ──────────────────────────────────────────────────
     tools.addTools(b);
@@ -182,6 +235,7 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
     });
     cli_mod.addImport("runtime", runtime_mod);
+    cli_mod.addImport("build_options", build_options_mod);
     const cli_exe = b.addExecutable(.{ .name = "mer", .root_module = cli_mod });
     b.step("cli", "Build the `mer` CLI binary").dependOn(&b.addInstallArtifact(cli_exe, .{}).step);
 
@@ -202,7 +256,7 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_tests.step);
     // Run inline tests in individual framework source files.
-    for ([_][]const u8{ "src/css.zig", "src/session.zig", "src/telemetry.zig" }) |src_path| {
+    for ([_][]const u8{ "src/css.zig", "src/session.zig", "src/telemetry.zig", "src/mercss.zig", "src/native.zig", "src/metrics.zig", "src/isr.zig", "src/watcher.zig" }) |src_path| {
         const file_test_mod = b.createModule(.{
             .root_source_file = b.path(src_path),
             .target = target,
@@ -219,6 +273,8 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .link_libc = true,
         });
+        cli_test_mod.addImport("build_options", build_options_mod);
+        cli_test_mod.addImport("runtime", runtime_mod);
         test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = cli_test_mod })).step);
     }
     // Run router + runtime inline tests (through mer.zig as root to avoid
@@ -234,7 +290,9 @@ pub fn build(b: *std.Build) void {
         mer_test_mod.addImport("dhi_model", dhi_model_mod);
         mer_test_mod.addImport("dhi_validator", dhi_validator_mod);
         mer_test_mod.addImport("turboapi-core", core_mod);
+        mer_test_mod.addImport("turboapi-http", core_http_mod);
         mer_test_mod.addImport("mer", mer_test_mod);
+        mer_test_mod.addImport("build_options", build_options_mod);
         test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = mer_test_mod })).step);
     }
 
@@ -345,10 +403,12 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         });
         desktop_mod.addImport("mer", mer_mod);
+        desktop_mod.addImport("runtime", runtime_mod);
         helpers.addDirModules(b, desktop_mod, mer_mod, "examples/site/app", "app", site_extras);
         helpers.addDirModules(b, desktop_mod, mer_mod, "examples/site/api", "api", &.{});
         helpers.addRoutesModule(b, desktop_mod, mer_mod, "src/generated/routes.zig", "examples/site/app", "examples/site/api", site_extras);
         const desktop_exe = b.addExecutable(.{ .name = "merapp", .root_module = desktop_mod });
+        desktop_exe.step.dependOn(&run_codegen.step);
         desktop_mod.linkFramework("AppKit", .{});
         desktop_mod.linkFramework("WebKit", .{});
         desktop_mod.linkFramework("Foundation", .{});
@@ -358,7 +418,7 @@ pub fn build(b: *std.Build) void {
         desktop_step.dependOn(&desktop_install.step);
 
         // ── .app bundle — MerApp.app/Contents/MacOS/merapp + Info.plist ──────
-        const plist = b.addWriteFile("MerApp.app/Contents/Info.plist",
+        const plist = b.addWriteFile("MerApp.app/Contents/Info.plist", b.fmt(
             \\<?xml version="1.0" encoding="UTF-8"?>
             \\<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
             \\<plist version="1.0">
@@ -366,12 +426,12 @@ pub fn build(b: *std.Build) void {
             \\  <key>CFBundleExecutable</key>    <string>merapp</string>
             \\  <key>CFBundleIdentifier</key>    <string>com.merjs.desktop</string>
             \\  <key>CFBundleName</key>          <string>MerApp</string>
-            \\  <key>CFBundleVersion</key>       <string>0.2.5</string>
+            \\  <key>CFBundleVersion</key>       <string>{s}</string>
             \\  <key>NSHighResolutionCapable</key><true/>
             \\  <key>NSPrincipalClass</key>      <string>NSApplication</string>
             \\</dict>
             \\</plist>
-        );
+        , .{zon.version}));
         const bundle_bin = b.addInstallFile(
             desktop_exe.getEmittedBin(),
             "MerApp.app/Contents/MacOS/merapp",
