@@ -250,9 +250,10 @@ pub fn build(b: *std.Build) void {
     helpers.addDirModules(b, test_mod, mer_mod, "examples/site/app", "app", site_extras);
     helpers.addDirModules(b, test_mod, mer_mod, "examples/site/api", "api", &.{});
     helpers.addRoutesModule(b, test_mod, mer_mod, "src/generated/routes.zig", "examples/site/app", "examples/site/api", site_extras);
-    const run_tests = b.addRunArtifact(b.addTest(.{ .root_module = test_mod }));
+    const tests = b.addTest(.{ .root_module = test_mod });
     // Auto-run codegen before tests too.
-    run_tests.step.dependOn(&run_codegen.step);
+    tests.step.dependOn(&run_codegen.step);
+    const run_tests = b.addRunArtifact(tests);
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_tests.step);
     // Run inline tests in individual framework source files.
@@ -293,6 +294,7 @@ pub fn build(b: *std.Build) void {
         mer_test_mod.addImport("turboapi-http", core_http_mod);
         mer_test_mod.addImport("mer", mer_test_mod);
         mer_test_mod.addImport("build_options", build_options_mod);
+        mer_test_mod.addImport("runtime", runtime_mod);
         test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = mer_test_mod })).step);
     }
 

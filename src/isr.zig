@@ -8,30 +8,19 @@
 //   * After the TTL  → serve the STALE cached copy immediately AND kick off a
 //                      background re-render so the next request gets fresh HTML.
 //
-// This file is intentionally dependency-free (only `std`) so its TTL/staleness
-// logic is trivially unit-testable in isolation. The server wires the actual
+// TTL/staleness checks are pure; clocks and locking use the shared Io runtime.
+// The server wires the actual
 // background re-render (which needs the router/dispatch) in server.zig; here we
 // only expose the thread-safe cache + the `tryBeginRevalidate` gate that
 // prevents a thundering herd of concurrent re-renders for the same path.
 
 const std = @import("std");
-
-// --- Zig 0.17 shim: Thread.Mutex was removed (see src/static.zig) ---
-const PthreadMutex = struct {
-    inner: std.c.pthread_mutex_t = std.c.PTHREAD_MUTEX_INITIALIZER,
-    pub fn lock(m: *PthreadMutex) void {
-        _ = std.c.pthread_mutex_lock(&m.inner);
-    }
-    pub fn unlock(m: *PthreadMutex) void {
-        _ = std.c.pthread_mutex_unlock(&m.inner);
-    }
-};
+const builtin = @import("builtin");
+const runtime = @import("runtime");
 
 /// Replacement for std.time.nanoTimestamp() which was removed in Zig 0.17.
 pub fn nowNs() i128 {
-    var ts: std.c.timespec = undefined;
-    _ = std.c.clock_gettime(.REALTIME, &ts);
-    return @as(i128, ts.sec) * 1_000_000_000 + @as(i128, ts.nsec);
+    return std.Io.Clock.real.now(runtime.io).toNanoseconds();
 }
 
 /// A cached, fully-rendered page (post-layout HTML). ISR only ever caches
@@ -55,12 +44,13 @@ pub const Lookup = struct {
 
 var cache: std.StringHashMapUnmanaged(Entry) = .{};
 var cache_alloc: std.mem.Allocator = undefined;
-var cache_mu: PthreadMutex = .{};
+var cache_mu: std.Io.Mutex = .init;
 var init_done: bool = false;
 
 /// Wire the long-lived allocator used to own cached bodies + keys. Called once
 /// from Server.listen (mirrors static.initCache).
 pub fn initCache(alloc: std.mem.Allocator) void {
+    if (builtin.is_test) runtime.io = std.testing.io;
     cache_alloc = alloc;
     init_done = true;
 }
@@ -88,8 +78,8 @@ pub fn isStale(rendered_at_ns: i128, revalidate_secs: u32, now_ns: i128) bool {
 /// staleness flag. Returns null on a miss (or before initCache).
 pub fn get(alloc: std.mem.Allocator, path: []const u8, revalidate_secs: u32, now_ns: i128) ?Lookup {
     if (!init_done) return null;
-    cache_mu.lock();
-    defer cache_mu.unlock();
+    cache_mu.lockUncancelable(runtime.io);
+    defer cache_mu.unlock(runtime.io);
     const e = cache.get(path) orelse return null;
     const body_copy = alloc.dupe(u8, e.body) catch return null;
     return .{
@@ -104,8 +94,8 @@ pub fn get(alloc: std.mem.Allocator, path: []const u8, revalidate_secs: u32, now
 /// lock) never observe a freed pointer.
 pub fn store(path: []const u8, body: []const u8, now_ns: i128) void {
     if (!init_done) return;
-    cache_mu.lock();
-    defer cache_mu.unlock();
+    cache_mu.lockUncancelable(runtime.io);
+    defer cache_mu.unlock(runtime.io);
     const owned_body = cache_alloc.dupe(u8, body) catch return;
     if (cache.getPtr(path)) |e| {
         cache_alloc.free(e.body);
@@ -131,8 +121,8 @@ pub fn store(path: []const u8, body: []const u8, now_ns: i128) void {
 /// requests so only one background re-render runs per path at a time.
 pub fn tryBeginRevalidate(path: []const u8) bool {
     if (!init_done) return false;
-    cache_mu.lock();
-    defer cache_mu.unlock();
+    cache_mu.lockUncancelable(runtime.io);
+    defer cache_mu.unlock(runtime.io);
     if (cache.getPtr(path)) |e| {
         if (e.revalidating) return false;
         e.revalidating = true;
@@ -145,15 +135,15 @@ pub fn tryBeginRevalidate(path: []const u8) bool {
 /// background re-render fails so a future request can retry).
 pub fn clearRevalidating(path: []const u8) void {
     if (!init_done) return;
-    cache_mu.lock();
-    defer cache_mu.unlock();
+    cache_mu.lockUncancelable(runtime.io);
+    defer cache_mu.unlock(runtime.io);
     if (cache.getPtr(path)) |e| e.revalidating = false;
 }
 
 /// Test-only: wipe the cache between tests. Frees all owned keys/bodies.
 fn resetForTest() void {
-    cache_mu.lock();
-    defer cache_mu.unlock();
+    cache_mu.lockUncancelable(runtime.io);
+    defer cache_mu.unlock(runtime.io);
     var it = cache.iterator();
     while (it.next()) |kv| {
         cache_alloc.free(kv.key_ptr.*);

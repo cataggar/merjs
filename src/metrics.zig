@@ -5,22 +5,10 @@
 // on /_mer/debug (see dev.zig). Recording is gated to dev mode by the caller so
 // production pays zero overhead.
 //
-// Only imports std — safe to import from both server.zig and dev.zig without
-// creating an import cycle.
+// Uses the shared Io runtime, with no server dependency or import cycle.
 
 const std = @import("std");
-
-// Zig 0.16+ removed std.Thread.Mutex; use a pthread-backed shim (same pattern
-// as static.zig / watcher.zig).
-const PthreadMutex = struct {
-    inner: std.c.pthread_mutex_t = .{},
-    pub fn lock(m: *PthreadMutex) void {
-        _ = std.c.pthread_mutex_lock(&m.inner);
-    }
-    pub fn unlock(m: *PthreadMutex) void {
-        _ = std.c.pthread_mutex_unlock(&m.inner);
-    }
-};
+const runtime = @import("runtime");
 
 /// Number of recent requests retained in the ring buffer.
 pub const capacity = 256;
@@ -39,7 +27,7 @@ const Sample = struct {
     }
 };
 
-var mutex: PthreadMutex = .{};
+var mutex: std.Io.Mutex = .init;
 var buffer: [capacity]Sample = undefined;
 var head: usize = 0; // next write index
 var count: usize = 0; // number of valid samples (<= capacity)
@@ -47,8 +35,8 @@ var total: u64 = 0; // lifetime request count
 
 /// Record a completed request. Cheap: one mutex lock + a small memcpy.
 pub fn record(path_str: []const u8, status: u16, ttfb_us: u64, duration_us: u64) void {
-    mutex.lock();
-    defer mutex.unlock();
+    mutex.lockUncancelable(runtime.io);
+    defer mutex.unlock(runtime.io);
 
     const s = &buffer[head];
     const n = @min(path_str.len, s.path_buf.len);
@@ -94,8 +82,8 @@ pub fn collect(alloc: std.mem.Allocator) !Report {
     var n: usize = 0;
     var total_snapshot: u64 = 0;
     {
-        mutex.lock();
-        defer mutex.unlock();
+        mutex.lockUncancelable(runtime.io);
+        defer mutex.unlock(runtime.io);
         n = count;
         total_snapshot = total;
         var i: usize = 0;
@@ -229,8 +217,9 @@ test "records and aggregates" {
 
 // Test-only helper.
 fn reset() void {
-    mutex.lock();
-    defer mutex.unlock();
+    runtime.io = std.testing.io;
+    mutex.lockUncancelable(runtime.io);
+    defer mutex.unlock(runtime.io);
     head = 0;
     count = 0;
     total = 0;
