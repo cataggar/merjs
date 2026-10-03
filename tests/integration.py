@@ -83,8 +83,16 @@ def check_scaffold(source):
         manifest = app / "build.zig.zon"
         assert source in manifest.read_text()
         assert manifest.read_text().count(".hash =") == 1
+        previous_source = "git+https://github.com/cataggar/merjs.git#23dcf37a471d83469bd2d705f007aea51ceed953"
+        previous_hash = "merjs-0.2.5-qL9Lkg3JYABh2AupQ9X64qsQ-bNQLv5SSGnHVtb2j9UR"
+        text = manifest.read_text().replace(source, previous_source)
+        hash_start = text.index('.hash = "') + len('.hash = "')
+        hash_end = text.index('"', hash_start)
+        manifest.write_text(text[:hash_start] + previous_hash + text[hash_end:])
         run(str(cli), "update", cwd=app)
         assert source in manifest.read_text()
+        assert previous_source not in manifest.read_text()
+        assert previous_hash not in manifest.read_text()
         assert manifest.read_text().count(".hash =") == 1
         run("zig", "build", "test", cwd=app)
         run(str(cli), "build", cwd=app)

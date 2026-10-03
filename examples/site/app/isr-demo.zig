@@ -26,7 +26,7 @@ var render_count: std.atomic.Value(Counter) = .init(0);
 
 pub fn render(req: mer.Request) mer.Response {
     const n = render_count.fetchAdd(1, .monotonic) + 1;
-    const secs = mer.unixTimestamp();
+    const secs = if (builtin.target.cpu.arch == .wasm32) 0 else mer.unixTimestamp();
 
     const body = std.fmt.allocPrint(req.allocator, page_template, .{ n, secs, secs }) catch
         return mer.internalError("isr-demo render failed");

@@ -14,17 +14,16 @@ pub const Props = struct {
     class: ?[]const u8 = null,
 };
 
-pub fn render(props: Props) h.Node {
+pub fn render(comptime props: Props) h.Node {
     const base_classes = "flex h-10 w-full rounded-md border border-slate-300 bg-transparent px-3 py-2 text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-400";
-    var class_buf: [256]u8 = undefined;
-    const classes = std.fmt.bufPrint(&class_buf, "{s} {s}", .{
+    const classes = std.fmt.comptimePrint("{s} {s}", .{
         base_classes,
         props.class orelse "",
-    }) catch base_classes;
+    });
     return h.input(.{
         .class = classes,
         .name = props.name,
-        .type_attr = props.type,
+        .type = props.type,
         .placeholder = props.placeholder,
         .value = props.value,
     });

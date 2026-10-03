@@ -56,10 +56,15 @@ jobs:
       - name: Scaffold and runtime integration
         run: python tests/integration.py --source "git+https://github.com/${{ github.repository }}.git#${{ github.event.pull_request.head.sha || github.sha }}"
 
+      - name: Standalone UI showcase
+        working-directory: examples/ui-showcase
+        run: zig build test
+
       - name: Deployment targets and static-asset cache
         if: runner.os == 'Linux'
         run: |
           zig build wasm worker fastly sgdata-worker worker-example-kanban prod -Doptimize=safe
+          node tests/worker.mjs
           python tests/integration.py --source "git+https://github.com/${{ github.repository }}.git#${{ github.event.pull_request.head.sha || github.sha }}" --assets
 
       - name: Container smoke test

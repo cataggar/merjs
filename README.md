@@ -102,6 +102,10 @@ zig build serve     # dev server on :3000 with hot reload
 
 Visit `http://localhost:3000`.
 
+The standalone UI example builds with `cd examples/ui-showcase && zig build test`.
+Its shared components live in `components/`, outside the file-based `app/`
+routes, and its HTML node tree is constructed at compile time.
+
 ---
 
 ## Performance

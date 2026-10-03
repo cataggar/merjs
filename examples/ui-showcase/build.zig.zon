@@ -5,8 +5,8 @@
     .minimum_zig_version = "0.17.0",
     .dependencies = .{
         .merjs = .{
-            .url = "git+https://github.com/justrach/merjs.git#1584fa898d5fd20e76062b71288a4f2159c5bed5",
-            .hash = "merjs-0.2.2-qL9LkrAIXwCQ5D_GLWhsplFYDR2xYZ4bJVhY3g6QF4ou",
+            .url = "git+https://github.com/cataggar/merjs.git#0705360b2b4eb55a46d3f0908fad42b2402b8e00",
+            .hash = "merjs-0.2.54-qL9LkpTEYgDxympdTBwXMJ3LzueaCMbcDot_Zo5MM31c",
         },
     },
     .paths = .{
@@ -14,6 +14,7 @@
         "build.zig.zon",
         "src",
         "app",
+        "components",
         "api",
         "public",
     },

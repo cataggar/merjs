@@ -246,8 +246,9 @@ const build_zig_template =
     \\    addDirModules(b, test_mod, mer_mod, "app");
     \\    addDirModules(b, test_mod, mer_mod, "api");
     \\    addRoutesModule(b, test_mod, mer_mod);
-    \\    const run_tests = b.addRunArtifact(b.addTest(.{ .root_module = test_mod }));
-    \\    run_tests.step.dependOn(&run_codegen.step);
+    \\    const tests = b.addTest(.{ .root_module = test_mod });
+    \\    tests.step.dependOn(&run_codegen.step);
+    \\    const run_tests = b.addRunArtifact(tests);
     \\    b.step("test", "Compile the starter app").dependOn(&run_tests.step);
     \\}
     \\
@@ -478,6 +479,73 @@ fn writeBuildZigZon(dir: std.Io.Dir, alloc: std.mem.Allocator, name: []const u8)
     try file.writeStreamingAll(runtime.io, "}\n");
 }
 
+fn zonField(tree: *const std.zig.Ast, node: std.zig.Ast.Node.Index, name: []const u8) !std.zig.Ast.Node.Index {
+    var buffer: [2]std.zig.Ast.Node.Index = undefined;
+    const init = tree.fullStructInit(&buffer, node) orelse return error.InvalidManifest;
+    var found: ?std.zig.Ast.Node.Index = null;
+    for (init.ast.fields) |field| {
+        const token = tree.tokenSlice(tree.firstToken(field) - 2);
+        const field_name = if (std.mem.startsWith(u8, token, "@\""))
+            token[2 .. token.len - 1]
+        else
+            token;
+        if (std.mem.eql(u8, field_name, name)) {
+            if (found != null) return error.DuplicateManifestField;
+            found = field;
+        }
+    }
+    return found orelse error.InvalidManifest;
+}
+
+fn updatedMerjsManifest(alloc: std.mem.Allocator, source: []const u8, url: []const u8, hash: []const u8) ![]u8 {
+    const terminated = try alloc.dupeSentinel(u8, source, 0);
+    defer alloc.free(terminated);
+    var tree = try std.zig.Ast.parse(alloc, terminated, .{ .mode = .zon });
+    defer tree.deinit(alloc);
+    if (tree.errors.len != 0) return error.InvalidManifest;
+    const dependencies = try zonField(&tree, tree.rootDecls()[0], "dependencies");
+    const dependency = try zonField(&tree, dependencies, "merjs");
+    const quoted_url = try std.json.Stringify.valueAlloc(alloc, url, .{});
+    defer alloc.free(quoted_url);
+    const quoted_hash = try std.json.Stringify.valueAlloc(alloc, hash, .{});
+    defer alloc.free(quoted_hash);
+    const replacement = try std.fmt.allocPrint(alloc, ".{{ .url = {s}, .hash = {s} }}", .{ quoted_url, quoted_hash });
+    defer alloc.free(replacement);
+    const start = tree.tokenStart(tree.firstToken(dependency));
+    const last_token = tree.lastToken(dependency);
+    const end = tree.tokenStart(last_token) + tree.tokenSlice(last_token).len;
+    return std.mem.concat(alloc, u8, &.{ source[0..start], replacement, source[end..] });
+}
+
+fn fetchMerjsDependency(alloc: std.mem.Allocator, dir: std.Io.Dir, cwd_path: []const u8, zig_exe: []const u8) !void {
+    // Zig 0.17's --save writes the URL but omits the hash required by zig build.
+    const result = try std.process.run(alloc, runtime.io, .{
+        .argv = &.{ zig_exe, "fetch", merjs_url },
+        .cwd = .{ .path = cwd_path },
+    });
+    defer alloc.free(result.stdout);
+    defer alloc.free(result.stderr);
+    const succeeded = switch (result.term) {
+        .exited => |code| code == 0,
+        else => false,
+    };
+    const hash = std.mem.trim(u8, result.stdout, " \r\n\t");
+    if (!succeeded or !std.mem.startsWith(u8, hash, "merjs-") or std.mem.indexOfAny(u8, hash, "\r\n") != null) {
+        print("mer: could not fetch {s}:\n{s}{s}", .{ merjs_url, result.stderr, result.stdout });
+        std.process.exit(1);
+    }
+    const source = try dir.readFileAlloc(runtime.io, "build.zig.zon", alloc, .limited(1024 * 1024));
+    defer alloc.free(source);
+    const updated = updatedMerjsManifest(alloc, source, merjs_url, hash) catch |err| {
+        print("mer: could not update build.zig.zon: {s}\n", .{@errorName(err)});
+        return err;
+    };
+    defer alloc.free(updated);
+    const file = try dir.createFile(runtime.io, "build.zig.zon", .{});
+    defer file.close(runtime.io);
+    try file.writeStreamingAll(runtime.io, updated);
+}
+
 fn cmdInit(alloc: std.mem.Allocator, name: []const u8, argv0: []const u8) !void {
     // Start timing for vanity metrics
     const start_ms = currentMs();
@@ -579,21 +647,7 @@ fn cmdInit(alloc: std.mem.Allocator, name: []const u8, argv0: []const u8) !void 
     const fetch_start_ms = currentMs();
     {
         const cwd_path = if (use_cwd) "." else name;
-
-        const result = try std.process.run(alloc, runtime.io, .{
-            .argv = &.{ zig_exe, "fetch", "--save=merjs", merjs_url },
-            .cwd = .{ .path = cwd_path },
-        });
-        defer alloc.free(result.stdout);
-        defer alloc.free(result.stderr);
-        const succeeded = switch (result.term) {
-            .exited => |code| code == 0,
-            else => false,
-        };
-        if (!succeeded) {
-            print("mer: could not fetch {s}:\n{s}", .{ merjs_url, result.stderr });
-            std.process.exit(1);
-        }
+        try fetchMerjsDependency(alloc, dir, cwd_path, zig_exe);
     }
 
     dir.createDirPath(runtime.io, "src/generated") catch {};
@@ -693,7 +747,7 @@ test "projectNameForZon clamps long names to 32 chars" {
 
 test "build_zig_template exposes a starter test step" {
     try std.testing.expect(std.mem.indexOf(u8, build_zig_template, "b.step(\"test\", \"Compile the starter app\")") != null);
-    try std.testing.expect(std.mem.indexOf(u8, build_zig_template, "run_tests.step.dependOn(&run_codegen.step);") != null);
+    try std.testing.expect(std.mem.indexOf(u8, build_zig_template, "tests.step.dependOn(&run_codegen.step);") != null);
 }
 
 test "build_zig_template uses the wired public codegen module" {
@@ -830,17 +884,7 @@ fn cmdUpdate(alloc: std.mem.Allocator) !void {
     defer alloc.free(zig_exe);
 
     print("mer: updating merjs to latest...\n", .{});
-    var child = try std.process.spawn(runtime.io, .{
-        .argv = &.{ zig_exe, "fetch", "--save=merjs", merjs_url },
-        .stdout = .inherit,
-        .stderr = .inherit,
-    });
-    const term = try child.wait(runtime.io);
-    const exited = term == .exited;
-    if (!exited or term.exited != 0) {
-        print("mer: update failed\n", .{});
-        std.process.exit(1);
-    }
+    try fetchMerjsDependency(alloc, std.Io.Dir.cwd(), ".", zig_exe);
     print("mer: updated — run `zig build` to rebuild\n", .{});
 }
 
@@ -1077,4 +1121,27 @@ test "detectInstallMethod recognizes npm, pip, and standalone paths" {
 test "zig_not_found_message references the download page" {
     try std.testing.expect(std.mem.indexOf(u8, zig_not_found_message, "https://ziglang.org/download/") != null);
     try std.testing.expect(std.mem.indexOf(u8, zig_not_found_message, "0.17.0") != null);
+}
+
+test "dependency update pins missing and existing hashes without changing other dependencies" {
+    const alloc = std.testing.allocator;
+    for ([_][]const u8{
+        ".{ .name = .app, .fingerprint = 123, .dependencies = .{ .merjs = .{ .url = \"old\" }, .other = .{ .path = \"lib\" } } }",
+        ".{ .name = .app, .fingerprint = 123, .dependencies = .{ .@\"merjs\" = .{ .url = \"old\", .hash = \"old-hash\" }, .other = .{ .path = \"lib\" } } }",
+    }) |source| {
+        const updated = try updatedMerjsManifest(alloc, source, "git+https://github.com/cataggar/merjs.git", "merjs-new-hash");
+        defer alloc.free(updated);
+        try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, updated, ".hash ="));
+        try std.testing.expect(std.mem.indexOf(u8, updated, ".url = \"git+https://github.com/cataggar/merjs.git\"") != null);
+        try std.testing.expect(std.mem.indexOf(u8, updated, ".hash = \"merjs-new-hash\"") != null);
+        try std.testing.expect(std.mem.indexOf(u8, updated, ".other = .{ .path = \"lib\" }") != null);
+        try std.testing.expect(std.mem.indexOf(u8, updated, ".fingerprint = 123") != null);
+        try std.testing.expect(std.mem.indexOf(u8, updated, "old-hash") == null);
+    }
+}
+
+test "dependency update rejects malformed and duplicate manifest fields" {
+    const alloc = std.testing.allocator;
+    try std.testing.expectError(error.InvalidManifest, updatedMerjsManifest(alloc, ".{", "url", "hash"));
+    try std.testing.expectError(error.DuplicateManifestField, updatedMerjsManifest(alloc, ".{ .dependencies = .{ .merjs = .{ .url = \"a\" }, .merjs = .{ .url = \"b\" } } }", "url", "hash"));
 }

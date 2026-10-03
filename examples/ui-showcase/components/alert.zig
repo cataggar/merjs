@@ -16,16 +16,15 @@ pub const Props = struct {
     variant: Variant = .default,
 };
 
-pub fn render(props: Props) h.Node {
+pub fn render(comptime props: Props) h.Node {
     const base_classes = "relative w-full rounded-lg border p-4";
     const variant_cls = switch (props.variant) {
         .default => "border-slate-200 bg-slate-50 text-slate-900",
         .destructive => "border-red-200 bg-red-50 text-red-900",
     };
-    var class_buf: [256]u8 = undefined;
-    const classes = std.fmt.bufPrint(&class_buf, "{s} {s}", .{
+    const classes = std.fmt.comptimePrint("{s} {s}", .{
         base_classes,
         variant_cls,
-    }) catch base_classes;
-    return h.div(.{ .class = classes, .role = "alert" }, props.description);
+    });
+    return h.div(.{ .class = classes, .extra = &.{.{ .name = "role", .value = "alert" }} }, props.description);
 }

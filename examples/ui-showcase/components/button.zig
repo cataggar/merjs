@@ -52,19 +52,24 @@ fn sizeClasses(size: Size) []const u8 {
     };
 }
 
-pub fn render(props: Props) h.Node {
+pub fn render(comptime props: Props) h.Node {
     const base_classes = "inline-flex items-center justify-center rounded-md font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 disabled:pointer-events-none disabled:opacity-50";
     const variant_cls = variantClasses(props.variant);
     const size_cls = sizeClasses(props.size);
-    var class_buf: [512]u8 = undefined;
-    const classes = std.fmt.bufPrint(&class_buf, "{s} {s} {s} {s}", .{
+    const classes = std.fmt.comptimePrint("{s} {s} {s} {s}", .{
         base_classes,
         variant_cls,
         size_cls,
         props.class orelse "",
-    }) catch base_classes;
+    });
     return h.button(
-        .{ .class = classes, .id = props.id, .type = props.type, .disabled = props.disabled, .onclick = props.on_click },
+        .{
+            .class = classes,
+            .id = props.id,
+            .type = props.type,
+            .disabled = props.disabled,
+            .extra = if (props.on_click) |handler| &.{.{ .name = "onclick", .value = handler }} else &.{},
+        },
         props.label,
     );
 }
