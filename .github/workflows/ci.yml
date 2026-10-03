@@ -10,6 +10,7 @@ jobs:
   build:
     runs-on: ${{ matrix.os }}
     name: Build & test (${{ matrix.os }})
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -29,9 +30,12 @@ jobs:
           New-Item -ItemType Junction -Path public -Target "$PWD\examples\site\public"
 
       - name: Setup Zig 0.17.0
-        uses: mlugg/setup-zig@v2
+        uses: cataggar/ghr/actions/install@v0.6.1
+        env:
+          GH_TOKEN: ${{ github.token }}
         with:
-          version: 0.17.0
+          tools: |
+            cataggar/zig@v0.17.0 RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U
 
       - name: Build merjs
         run: |
