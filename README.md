@@ -5,7 +5,7 @@
 <p align="center">
   <a href="https://github.com/justrach/merjs/releases/latest"><img src="https://img.shields.io/github/v/release/justrach/merjs?style=flat-square&label=version" alt="Latest Release" /></a>
   <a href="https://github.com/justrach/merjs/blob/main/LICENSE"><img src="https://img.shields.io/github/license/justrach/merjs?style=flat-square" alt="License" /></a>
-  <img src="https://img.shields.io/badge/zig-0.16-f7a41d?style=flat-square" alt="Zig 0.16" />
+  <img src="https://img.shields.io/badge/zig-0.17-f7a41d?style=flat-square" alt="Zig 0.17" />
   <img src="https://img.shields.io/badge/node__modules-0_files-brightgreen?style=flat-square" alt="Zero node_modules" />
   <img src="https://img.shields.io/badge/status-experimental-orange?style=flat-square" alt="Experimental" />
 </p>
@@ -46,7 +46,11 @@ merjs is exploring whether you can get the full Next.js developer experience —
 
 ## Quick Start
 
-**Requirements:** [Zig 0.16](https://ziglang.org/download/)
+**Requirements:** [Official Zig 0.17.0](https://ziglang.org/download/).
+Optimization modes are `debug`, `safe`, `fast`, and `small`.
+The pinned dhi revision supports 0.17's field-name/type reflection APIs.
+The cataggar fork retains portable Windows I/O, Threaded I/O on Linux,
+and its GitHub image CSP allowances.
 
 ### Option A: One-line install (recommended)
 

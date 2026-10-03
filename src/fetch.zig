@@ -128,9 +128,9 @@ pub fn fetchAll(allocator: std.mem.Allocator, requests: []const FetchRequest) []
     const threads = allocator.alloc(std.Thread, requests.len) catch return results;
     defer allocator.free(threads);
 
-    const gpas = allocator.alloc(std.heap.DebugAllocator(.{}), requests.len) catch return results;
+    const gpas = allocator.alloc(std.heap.SafeAllocator, requests.len) catch return results;
     defer allocator.free(gpas);
-    for (gpas) |*g| g.* = .init;
+    for (gpas) |*g| g.* = .init(std.heap.page_allocator, .{});
 
     for (requests, 0..) |req_opts, i| {
         threads[i] = std.Thread.spawn(.{}, fetchWorker, .{ gpas[i].allocator(), req_opts, &results[i] }) catch {

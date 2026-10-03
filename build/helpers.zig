@@ -13,9 +13,10 @@ pub fn addDirModules(
     import_prefix: []const u8,
     extra_imports: []const struct { []const u8, *std.Build.Module },
 ) void {
+    b.dependOnDirectoryContents(b.path(dir));
     const layout_path = b.fmt("{s}/layout.zig", .{dir});
     const layout_mod: ?*std.Build.Module = blk: {
-        std.Io.Dir.cwd().access(b.graph.io, layout_path, .{}) catch break :blk null;
+        b.root.access(b.graph.io, layout_path, .{}) catch break :blk null;
         const m = b.createModule(.{ .root_source_file = b.path(layout_path) });
         m.addImport("mer", mer_mod);
         for (extra_imports) |ei| m.addImport(ei[0], ei[1]);
@@ -24,11 +25,15 @@ pub fn addDirModules(
         break :blk m;
     };
 
-    var d = std.Io.Dir.cwd().openDir(b.graph.io, dir, .{ .iterate = true }) catch return;
+    var d = b.root.openDir(b.graph.io, dir, .{ .iterate = true }) catch return;
     defer d.close(b.graph.io);
     var walker = d.walk(b.allocator) catch return;
     defer walker.deinit();
     while (walker.next(b.graph.io) catch null) |entry| {
+        if (entry.kind == .directory) {
+            b.dependOnDirectoryContents(b.path(b.fmt("{s}/{s}", .{ dir, entry.path })));
+            continue;
+        }
         if (entry.kind != .file) continue;
         if (!std.mem.endsWith(u8, entry.path, ".zig")) continue;
         if (std.mem.eql(u8, entry.path, "layout.zig")) continue;
@@ -74,7 +79,7 @@ pub fn addWasmExe(b: *std.Build, name: []const u8, source: []const u8, wasm_targ
         .root_module = b.createModule(.{
             .root_source_file = b.path(source),
             .target = wasm_target,
-            .optimize = .ReleaseSmall,
+            .optimize = .small,
         }),
     });
     exe.rdynamic = true;

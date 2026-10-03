@@ -62,7 +62,7 @@ pub fn sentryCapture(
     ) catch return;
 
     // Copy to heap for the thread.
-    var gpa: std.heap.DebugAllocator(.{}) = .init;
+    var gpa: std.heap.SafeAllocator = .init(std.heap.page_allocator, .{});
     const alloc = gpa.allocator();
     const url_copy = alloc.dupe(u8, url) catch return;
     const payload_copy = alloc.dupe(u8, envelope) catch return;
@@ -75,7 +75,7 @@ pub fn sentryCapture(
     t.detach();
 }
 
-fn sentrySendThread(gpa: *std.heap.DebugAllocator(.{}), url: []const u8, payload: []const u8) void {
+fn sentrySendThread(gpa: *std.heap.SafeAllocator, url: []const u8, payload: []const u8) void {
     defer {
         const alloc = gpa.allocator();
         alloc.free(url);

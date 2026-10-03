@@ -2,11 +2,11 @@
     .name = .merjs,
     .fingerprint = 0xaa135c45924bbfa8,
     .version = "0.2.5",
-    .minimum_zig_version = "0.16.0",
+    .minimum_zig_version = "0.17.0",
     .dependencies = .{
         .dhi = .{
-            .url = "git+https://github.com/justrach/dhi.git#20bbf6a25e9f0d28bd915f6dc7e18a9766b1134a",
-            .hash = "dhi-0.1.0-Fz3bn3g6AwCFCeeGWyrLnJo-V95C5VkFxdVaWMEqc7iy",
+            .url = "git+https://github.com/justrach/dhi.git#1ab751d4ac791c20d4d6a89ab0b93c3af4e7f9d9",
+            .hash = "dhi-0.1.0-Fz3bn-76AwCoDLJe13jVP8B-MgusRKY9EnpFD32DBc3e",
         },
         // TODO: re-enable once kuri is updated for Zig 0.16
         // .kuri = .{

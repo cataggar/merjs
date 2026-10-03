@@ -63,7 +63,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
-        .strip = if (optimize != .Debug) true else null,
+        .strip = if (optimize != .debug) true else null,
         .link_libc = true, // 0.16: std.c.* (pthread, clock_gettime, etc.) needs explicit libc
     });
     main_mod.addImport("mer", mer_mod);
@@ -85,7 +85,7 @@ pub fn build(b: *std.Build) void {
     const codegen_mod = b.createModule(.{
         .root_source_file = b.path("tools/codegen.zig"),
         .target = b.graph.host,
-        .optimize = .Debug,
+        .optimize = .debug,
     });
     // Wire up runtime for tools/codegen.zig
     codegen_mod.addImport("runtime", runtime_mod);
@@ -106,7 +106,7 @@ pub fn build(b: *std.Build) void {
     // ── `zig build serve` ────────────────────────────────────────────────────
     const run_exe = b.addRunArtifact(exe);
     run_exe.step.dependOn(b.getInstallStep());
-    if (b.args) |args| run_exe.addArgs(args);
+    run_exe.addPassthruArgs();
     b.step("serve", "Start the merjs dev server").dependOn(&run_exe.step);
 
     // ── Prerender (SSG) ─────────────────────────────────────────────────────
@@ -144,13 +144,13 @@ pub fn build(b: *std.Build) void {
     const worker_named = b.addModule("worker", .{
         .root_source_file = b.path("src/worker.zig"),
         .target = wasm_target,
-        .optimize = .ReleaseSmall,
+        .optimize = .small,
     });
     worker_named.addImport("mer", mer_mod);
     const worker_mod = b.createModule(.{
         .root_source_file = b.path("src/worker.zig"),
         .target = wasm_target,
-        .optimize = .ReleaseSmall,
+        .optimize = .small,
     });
     worker_mod.addImport("mer", mer_mod);
     worker_mod.addImport("counter_config", counter_config_mod);
@@ -178,7 +178,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("cli.zig"),
         .target = target,
         .optimize = optimize,
-        .strip = if (optimize != .Debug) true else null,
+        .strip = if (optimize != .debug) true else null,
         .link_libc = true,
     });
     cli_mod.addImport("runtime", runtime_mod);
