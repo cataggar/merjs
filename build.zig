@@ -256,6 +256,17 @@ pub fn build(b: *std.Build) void {
     const run_tests = b.addRunArtifact(tests);
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_tests.step);
+    const dev_test_mod = b.createModule(.{
+        .root_source_file = b.path("tests/test_dev.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    dev_test_mod.addImport("mer", mer_mod);
+    const dev_tests = b.addTest(.{ .root_module = dev_test_mod });
+    const run_dev_tests = b.addRunArtifact(dev_tests);
+    test_step.dependOn(&run_dev_tests.step);
+    b.step("test-dev", "Run hot-reload injection tests").dependOn(&run_dev_tests.step);
     // Run inline tests in individual framework source files.
     for ([_][]const u8{ "src/css.zig", "src/session.zig", "src/telemetry.zig", "src/mercss.zig", "src/native.zig", "src/metrics.zig", "src/isr.zig", "src/watcher.zig" }) |src_path| {
         const file_test_mod = b.createModule(.{

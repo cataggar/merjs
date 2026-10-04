@@ -16,9 +16,9 @@ pub const RouteDebugInfo = struct {
 // location.reload(). This preserves window scroll position, form field values,
 // and the focused element. Any failure falls back to location.reload().
 //
-// IMPORTANT: this script MUST end with </body> — injectHotReload() (below) and
-// the streaming tail in server.zig rely on that closing tag being present here.
-pub const hot_reload_script =
+// Streaming inserts only the script; the layout tail owns the closing tags.
+// Replacement injection below restores the </body> tag it replaces.
+pub const hot_reload_script_inline =
     \\<script id="__mer_hr__">
     \\(function(){
     \\  var es = new EventSource('/_mer/events');
@@ -120,8 +120,9 @@ pub const hot_reload_script =
     \\  es.addEventListener('builderror', function(ev){ showBuildError(ev.data); });
     \\})();
     \\</script>
-    \\</body>
 ;
+
+pub const hot_reload_script = hot_reload_script_inline ++ "\n</body>";
 
 pub fn injectHotReload(alloc: std.mem.Allocator, body: []const u8) ![]u8 {
     const marker = "</body>";

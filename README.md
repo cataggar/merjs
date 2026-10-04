@@ -517,7 +517,14 @@ git clone https://github.com/justrach/merjs.git
 cd merjs
 git config core.hooksPath .githooks   # enable pre-commit (fmt+build) and pre-push (test)
 zig build test                        # run unit tests
+zig build test-dev                    # focused hot-reload injection test
+python tests/integration.py --runtime-only # raw dev/production HTTP regressions
 ```
+
+Runtime checks exercise true streaming (`/docs`), shell-first streaming (`/counter`),
+and full-document injection (`/desktop`). They also run in the default
+`tests/integration.py --source <framework-url>` integration suite; `--runtime-only`
+skips scaffolding and dependency-update checks and does not require `--source`.
 
 Open an issue before submitting a large PR.
 
