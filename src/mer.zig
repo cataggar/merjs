@@ -256,6 +256,12 @@ pub const runPrerender = @import("prerender.zig").run;
 
 // --- Tests ------------------------------------------------------------------
 
+// Discover inline tests in mer-owned modules without separate test roots.
+test {
+    _ = @import("router.zig");
+    _ = @import("dispatch.zig");
+}
+
 test "version is sourced from build.zig.zon via build_options" {
     // Guard against future reverts to a hardcoded literal that drifts from
     // the package version in build.zig.zon. Both sides resolve to the same
