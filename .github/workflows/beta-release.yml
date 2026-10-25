@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: write
+  attestations: read
 
 jobs:
   build-and-release:
@@ -18,7 +19,7 @@ jobs:
           fetch-depth: 0
 
       - name: Setup Zig 0.17.0
-        uses: cataggar/ghr/actions/install@v0.6.1
+        uses: cataggar/ghr/actions/install@v0.9.1
         env:
           GH_TOKEN: ${{ github.token }}
         with:
