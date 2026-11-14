@@ -126,10 +126,10 @@ routes, and its HTML node tree is constructed at compile time.
 |                        | **merjs**                  | **Next.js**                    |
 | ---------------------- | -------------------------- | ------------------------------ |
 <!-- BENCH:START -->
-| Requests/sec (wrk)    | **2435.51 req/s**     | **2275.00 req/s**          |
-| Avg latency           | **40.92ms 1.34ms**           | **68.51ms 160.66ms**                |
-| RAM usage (under load) | **10.1 MB**        | **71.2 MB**             |
-| Build time             | **108867 ms**                | **30190 ms**                   |
+| Requests/sec (wrk)    | **2432.92 req/s**     | **3382.61 req/s**          |
+| Avg latency           | **41.00ms 1.17ms**           | **47.97ms 125.88ms**                |
+| RAM usage (under load) | **9.4 MB**        | **73.2 MB**             |
+| Build time             | **71320 ms**                | **52429 ms**                   |
 <!-- BENCH:END -->
 
 > merjs is an early experiment — Next.js is mature and production-grade. Local and CI numbers differ due to hardware (Apple Silicon vs shared GitHub Actions VM).
