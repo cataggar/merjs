@@ -31,7 +31,7 @@ for (const [path, expectedStatus] of [
     assert.equal(status, expectedStatus, path);
     if (path === "/api/hello") {
       assert.equal(type, "application/json");
-      assert.equal(JSON.parse(body).zig_version, "0.17.0");
+      assert.equal(JSON.parse(body).zig_version, "0.17.1");
     }
     if (path === "/isr-demo") {
       assert.equal(type, "text/html; charset=utf-8");

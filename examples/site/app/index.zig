@@ -40,7 +40,7 @@ fn page() h.Node {
         h.div(.{ .class = "release-banner" }, .{
             h.span(.{ .class = "release-badge" }, "NEW"),
             h.div(.{ .class = "release-content" }, .{
-                h.span(.{ .class = "release-text" }, "v" ++ mer.version ++ " — Now on official Zig 0.17.0 with one-line install:"),
+                h.span(.{ .class = "release-text" }, "v" ++ mer.version ++ " — Now on official Zig 0.17.1 with one-line install:"),
                 h.raw("<code class=\"release-code\" onclick=\"navigator.clipboard.writeText(this.textContent); this.classList.add('copied'); setTimeout(() => this.classList.remove('copied'), 1500);\">curl -fsSL merjs.trilok.ai/install.sh | bash</code>"),
             }),
         }),
@@ -122,7 +122,7 @@ fn page() h.Node {
             h.a(.{ .href = "/about", .class = "btn-ghost" }, "Read the philosophy"),
             h.p(.{ .class = "footer-note" }, .{
                 h.text("Built in "),
-                h.a(.{ .href = "https://ziglang.org" }, "Zig 0.17.0"),
+                h.a(.{ .href = "https://ziglang.org" }, "Zig 0.17.1"),
                 h.raw(" &middot; Validation by "),
                 h.a(.{ .href = "https://github.com/justrach/dhi" }, "dhi"),
                 h.raw(" &middot; Zero node_modules"),

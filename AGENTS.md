@@ -5,7 +5,7 @@
 merjs is a Next.js-style web framework written in Zig. Zero Node.js.
 File-based routing, SSR, type-safe APIs, WASM client logic, Cloudflare Workers deploy.
 
-**Zig pin:** official `0.17.0` (`build.zig.zon` `minimum_zig_version`). Download from https://ziglang.org/download/.
+**Zig pin:** official `0.17.1` (`build.zig.zon` `minimum_zig_version`). Download from https://ziglang.org/download/.
 
 ## Project structure
 

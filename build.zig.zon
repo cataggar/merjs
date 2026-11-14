@@ -2,7 +2,7 @@
     .name = .merjs,
     .fingerprint = 0xaa135c45924bbfa8,
     .version = "0.2.54",
-    .minimum_zig_version = "0.17.0",
+    .minimum_zig_version = "0.17.1",
     .dependencies = .{
         .dhi = .{
             .url = "git+https://github.com/justrach/dhi.git#1ab751d4ac791c20d4d6a89ab0b93c3af4e7f9d9",

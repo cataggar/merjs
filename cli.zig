@@ -54,7 +54,7 @@ const zig_not_found_message =
     \\❌ Zig not found on your PATH.
     \\
     \\   merjs builds your app with the Zig compiler, but `zig` could not be
-    \\   located. Official Zig 0.17.0 is required.
+    \\   located. Official Zig 0.17.1 is required.
     \\
     \\   Install it from: https://ziglang.org/download/
     \\   Then make sure `zig` is on your PATH and re-run this command.
@@ -458,7 +458,7 @@ fn writeBuildZigZon(dir: std.Io.Dir, alloc: std.mem.Allocator, name: []const u8)
     try file.writeStreamingAll(runtime.io, ".{\n    .name = .");
     try file.writeStreamingAll(runtime.io, zig_name);
     try file.writeStreamingAll(runtime.io, ",\n    .version = \"0.1.0\",\n");
-    try file.writeStreamingAll(runtime.io, "    .minimum_zig_version = \"0.17.0\",\n");
+    try file.writeStreamingAll(runtime.io, "    .minimum_zig_version = \"0.17.1\",\n");
     try file.writeStreamingAll(runtime.io, "    .dependencies = .{\n");
     try file.writeStreamingAll(runtime.io, "        .merjs = .{\n");
     const quoted_url = try std.json.Stringify.valueAlloc(alloc, merjs_url, .{});
@@ -1120,7 +1120,7 @@ test "detectInstallMethod recognizes npm, pip, and standalone paths" {
 
 test "zig_not_found_message references the download page" {
     try std.testing.expect(std.mem.indexOf(u8, zig_not_found_message, "https://ziglang.org/download/") != null);
-    try std.testing.expect(std.mem.indexOf(u8, zig_not_found_message, "0.17.0") != null);
+    try std.testing.expect(std.mem.indexOf(u8, zig_not_found_message, "0.17.1") != null);
 }
 
 test "dependency update pins missing and existing hashes without changing other dependencies" {

@@ -467,7 +467,7 @@ zig build test       # run tests
 5. **HTML builder is comptime-only** — never call `h.*` functions at runtime; dangling pointers will crash
 6. **For wasm32 targets**, guard `std.time`, `std.fs`, `std.net` with `builtin.target.cpu.arch != .wasm32`
 7. **Tailwind CSS** uses the standalone CLI at `tools/tailwindcss` — no npm needed
-8. **Zig version is official 0.17.0** — do not use 0.15 APIs. `std.builtin.Optimize` tags are `.debug` / `.safe` / `.fast` / `.small` (not `.Debug` / `.ReleaseSmall`).
+8. **Zig version is official 0.17.1** — do not use 0.15 APIs. `std.builtin.Optimize` tags are `.debug` / `.safe` / `.fast` / `.small` (not `.Debug` / `.ReleaseSmall`).
 9. **Design system**: always use CSS vars (`--bg`, `--text`, etc.) and DM Serif/DM Sans fonts for new pages
 10. **Server**: std.Thread.Pool with 128 workers and kernel backlog 512 — no global mutable state in handlers
 
