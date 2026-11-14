@@ -11,7 +11,7 @@
 FROM ubuntu:24.04 AS builder
 
 # Pin Zig version. Match build.zig.zon `minimum_zig_version`.
-ARG ZIG_VERSION=0.17.0
+ARG ZIG_VERSION=0.17.1
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl xz-utils ca-certificates git \

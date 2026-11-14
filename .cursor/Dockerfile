@@ -8,7 +8,7 @@
 FROM ubuntu:24.04
 
 # Keep in sync with build.zig.zon `minimum_zig_version` and the root Dockerfile.
-ARG ZIG_VERSION=0.17.0
+ARG ZIG_VERSION=0.17.1
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \

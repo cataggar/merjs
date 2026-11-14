@@ -221,7 +221,7 @@ def check_demo():
     binary = ROOT / "zig-out" / "bin" / f"merjs{SUFFIX}"
     with server(binary, ROOT) as base:
         status, _, body = request(base, "/api/hello")
-        assert status == 200 and json.loads(body)["zig_version"] == "0.17.0"
+        assert status == 200 and json.loads(body)["zig_version"] == "0.17.1"
         status, headers, _ = request(base, "/admin")
         assert status == 303 and headers["Location"] == "/login"
         first = request(base, "/isr-demo")

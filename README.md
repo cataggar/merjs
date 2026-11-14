@@ -46,7 +46,7 @@ merjs is exploring whether you can get the full Next.js developer experience —
 
 ## Quick Start
 
-**Requirements:** [Official Zig 0.17.0](https://ziglang.org/download/).
+**Requirements:** [Official Zig 0.17.1](https://ziglang.org/download/).
 Optimization modes are `debug`, `safe`, `fast`, and `small`.
 The pinned dhi revision supports 0.17's field-name/type reflection APIs.
 The cataggar fork retains portable Windows I/O, Threaded I/O on Linux,
@@ -323,7 +323,7 @@ docker run --rm -p 3000:3000 merjs
 ```
 
 The image:
-- Pins official Zig 0.17.0 (matches `build.zig.zon`)
+- Pins official Zig 0.17.1 (matches `build.zig.zon`)
 - Runs as a non-root user (`uid 10001`)
 - Uses `tini` as PID 1 so `Ctrl-C` and orchestrator stop signals work
 - Has a `HEALTHCHECK` against `/_mer/health`
@@ -413,7 +413,7 @@ info(runtime): io backend: Threaded (blocking syscalls)
 ```
 
 The fork retains **Threaded** on every platform until Evented HTTP serving is
-validated with official Zig 0.17.0. Upstream also disabled Evented on its
+validated with official Zig 0.17.1. Upstream also disabled Evented on its
 0.17 development snapshot because listening and accepting were unimplemented.
 The backend-selection and init-time fallback code remains available, but a
 compiler-version bump alone does not enable it.
@@ -535,7 +535,7 @@ Open an issue before submitting a large PR.
 - **[dhi](https://github.com/justrach/dhi)** — Pydantic-style validation for Zig
 - **[Tailwind CSS v4](https://tailwindcss.com)** — standalone CLI, no npm
 - **[kuri](https://github.com/justrach/kuri)** — E2E testing via headless Chrome
-- **Official Zig 0.17.0** — the whole stack
+- **Official Zig 0.17.1** — the whole stack
 
 ## License
 
